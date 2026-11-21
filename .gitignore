@@ -1,0 +1,9 @@
+.build/
+.cache/
+.config/
+.security/
+.tmp/
+Vendor/
+dist/
+/*.log
+__pycache__/

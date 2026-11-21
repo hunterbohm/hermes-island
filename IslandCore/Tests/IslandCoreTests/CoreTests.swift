@@ -1,0 +1,543 @@
+import Foundation
+import Testing
+@testable import IslandCore
+
+private func t(_ s: Double) -> Instant { Instant(seconds: s) }
+
+/// Feeds a key timeline to a fresh machine and collects every command it issued.
+private func press(_ inputs: [KeyInput], timing: HotkeyTiming = HotkeyTiming()) -> (phase: HotkeyMachine, commands: [CaptureCommand]) {
+    var machine = HotkeyMachine.idle
+    let commands = inputs.flatMap { machine.handle($0, timing: timing).commands }
+    return (machine, commands)
+}
+
+@Suite("Hotkey state machine") struct HotkeyTests {
+    @Test func holdThenReleaseFinishes() {
+        #expect(press([.hotkeyDown(t(0)), .tick(t(0.12)), .hotkeyUp(t(1.5))]) == (.idle, [.start, .finish]))
+    }
+
+    @Test func releaseUnderMinHoldIsATapThatCancelsWhenTheWindowLapses() {
+        let (phase, commands) = press([.hotkeyDown(t(0)), .hotkeyUp(t(0.1))])
+        #expect(commands == [.start])
+        #expect(phase == .tapped(captureStart: t(0), releasedAt: t(0.1), shown: false))
+        #expect(press([.hotkeyDown(t(0)), .hotkeyUp(t(0.1)), .tick(t(0.45))]) == (.idle, [.start, .cancel]))
+    }
+
+    @Test func doubleTapEntersHandsFreeAndTheNextPressFinishes() {
+        let taps: [KeyInput] = [.hotkeyDown(t(0)), .hotkeyUp(t(0.1)), .hotkeyDown(t(0.3)), .hotkeyUp(t(0.4))]
+        let handsFree = press(taps)
+        #expect(handsFree == (.handsFree(captureStart: t(0)), [.start]))
+        #expect(handsFree.phase.showsListening)
+        #expect(press(taps + [.tick(t(5)), .hotkeyDown(t(8)), .hotkeyUp(t(8.1))]) == (.idle, [.start, .finish]))
+    }
+
+    @Test func tapThenHoldFinishesAsAHoldKeepingTheFirstTapsAudio() {
+        let keys: [KeyInput] = [.hotkeyDown(t(0)), .hotkeyUp(t(0.1)), .hotkeyDown(t(0.3)), .hotkeyUp(t(2.0))]
+        #expect(press(keys) == (.idle, [.start, .finish]))
+    }
+
+    @Test func aSecondPressAfterTheWindowIsAFreshPressEvenWhenTheTickIsLate() {
+        let (phase, commands) = press([.hotkeyDown(t(0)), .hotkeyUp(t(0.1)), .hotkeyDown(t(0.6))])
+        #expect(commands == [.start, .cancel, .start])
+        #expect(phase == .pressed(since: t(0.6), shown: false))
+        #expect(press([.hotkeyDown(t(0)), .hotkeyUp(t(0.1)), .hotkeyDown(t(0.6)), .hotkeyUp(t(2))]).commands
+            == [.start, .cancel, .start, .finish])
+    }
+
+    @Test func chordCancelsAndItsReleaseIsIgnored() {
+        let chord = press([.hotkeyDown(t(0)), .otherKey(t(0.05), isEscape: false)])
+        #expect(chord == (.awaitingRelease, [.start, .cancel]))
+        #expect(press([.hotkeyDown(t(0)), .otherKey(t(0.05), isEscape: false), .hotkeyUp(t(2))]) == (.idle, [.start, .cancel]))
+    }
+
+    @Test func typingDuringTheDoubleTapWindowCancels() {
+        #expect(press([.hotkeyDown(t(0)), .hotkeyUp(t(0.1)), .otherKey(t(0.2), isEscape: false)]) == (.idle, [.start, .cancel]))
+    }
+
+    @Test func barStaysHiddenUntilBarDelaySoChordsNeverShowIt() {
+        var machine = HotkeyMachine.idle
+        let timing = HotkeyTiming()
+        _ = machine.handle(.hotkeyDown(t(0)), timing: timing)
+        #expect(!machine.showsListening)
+        #expect(machine.deadline(timing) == t(0) + timing.barDelay)
+        _ = machine.handle(.tick(t(0.05)), timing: timing)
+        #expect(!machine.showsListening)
+        _ = machine.handle(.tick(t(0.12)), timing: timing)
+        #expect(machine.showsListening)
+    }
+
+    @Test func escapeCancelsHandsFreeAndIsConsumedButPassesThroughOtherwise() {
+        var machine = HotkeyMachine.handsFree(captureStart: t(0))
+        let timing = HotkeyTiming()
+        #expect(machine.handle(.otherKey(t(3), isEscape: false), timing: timing) == HotkeyStep())
+        #expect(machine == .handsFree(captureStart: t(0)))
+        #expect(machine.handle(.otherKey(t(4), isEscape: true), timing: timing) == HotkeyStep([.cancel], consumeEvent: true))
+        #expect(machine == .idle)
+
+        var held = HotkeyMachine.idle
+        _ = held.handle(.hotkeyDown(t(0)), timing: timing)
+        #expect(held.handle(.otherKey(t(1), isEscape: true), timing: timing) == HotkeyStep([.cancel]))
+    }
+
+    @Test func captureFinishesItselfAtMaxCapture() {
+        var timing = HotkeyTiming()
+        timing.maxCapture = 10
+        #expect(press([.hotkeyDown(t(0)), .tick(t(0.12)), .tick(t(9.9))], timing: timing).commands == [.start])
+        #expect(press([.hotkeyDown(t(0)), .tick(t(0.12)), .tick(t(10))], timing: timing) == (.awaitingRelease, [.start, .finish]))
+        let handsFree: [KeyInput] = [.hotkeyDown(t(0)), .hotkeyUp(t(0.1)), .hotkeyDown(t(0.3)), .hotkeyUp(t(0.4)), .tick(t(10))]
+        #expect(press(handsFree, timing: timing) == (.idle, [.start, .finish]))
+    }
+
+    @Test func abortWhileHeldWaitsForTheReleaseAndStartsNothingNew() {
+        var machine = HotkeyMachine.idle
+        let timing = HotkeyTiming()
+        _ = machine.handle(.hotkeyDown(t(0)), timing: timing)
+        machine.abort()
+        #expect(machine == .awaitingRelease)
+        #expect(machine.handle(.hotkeyUp(t(1)), timing: timing) == HotkeyStep())
+        #expect(machine == .idle)
+    }
+
+    @Test func aLostReleaseDoesNotSwallowTheNextPress() {
+        var machine = HotkeyMachine.awaitingRelease
+        #expect(machine.handle(.hotkeyDown(t(5)), timing: HotkeyTiming()).commands == [.start])
+        #expect(machine == .pressed(since: t(5), shown: false))
+    }
+
+    @Test func aPressWhileHeldMeansTheReleaseWasLostSoTheOldCaptureIsDropped() {
+        let (phase, commands) = press([.hotkeyDown(t(0)), .tick(t(0.12)), .hotkeyDown(t(30))])
+        #expect(commands == [.start, .cancel, .start])
+        #expect(phase == .pressed(since: t(30), shown: false))
+        #expect(press([.hotkeyDown(t(0)), .hotkeyDown(t(30)), .hotkeyUp(t(31))]).commands == [.start, .cancel, .start, .finish])
+    }
+
+    func classify(_ kind: KeyInput.EventKind, _ keyCode: Int, _ flags: UInt64, _ shortcuts: [Shortcut], repeat isRepeat: Bool = false,
+                  at time: Instant = t(1)) -> KeyInput? {
+        KeyInput.classify(kind: kind, keyCode: keyCode, flags: flags, isRepeat: isRepeat, shortcuts: shortcuts, at: time)
+    }
+
+    @Test func classifyReadsFnOnlyFromItsOwnFlagsChanged() {
+        let fnBit: UInt64 = 0x80_0000
+        #expect(classify(.flagsChanged, 63, fnBit, [.fn]) == .hotkeyDown(t(1)))
+        #expect(classify(.flagsChanged, 63, 0, [.fn]) == .hotkeyUp(t(1)))
+        #expect(classify(.keyDown, 123, fnBit, [.fn]) == .otherKey(t(1), isEscape: false))
+        #expect(classify(.keyDown, 53, 0, [.fn]) == .otherKey(t(1), isEscape: true))
+    }
+
+    /// Recorded on a MacBook Pro with Press fn key to set to Do Nothing. A quick fn release is followed by a
+    /// Globe key down and up, which a long hold does not send.
+    @Test func doubleTapOfARealFnKeyGoesHandsFree() {
+        let events: [(KeyInput.EventKind, Int, UInt64, Double)] = [
+            (.flagsChanged, 63, 0x80_0100, 0), (.flagsChanged, 63, 0x100, 0.103),
+            (.keyDown, 179, 0x100, 0.103), (.keyUp, 179, 0x100, 0.103),
+            (.flagsChanged, 63, 0x80_0100, 0.198), (.flagsChanged, 63, 0x100, 0.299),
+            (.keyDown, 179, 0x100, 0.299), (.keyUp, 179, 0x100, 0.299),
+        ]
+        let inputs = events.compactMap { classify($0.0, $0.1, $0.2, [.fn], at: t($0.3)) }
+        #expect(press(inputs) == (.handsFree(captureStart: t(0)), [.start]))
+    }
+
+    @Test func anotherModifierPressedIsAChordButOneLetGoIsNothing() {
+        let leftShift: UInt64 = 0x2_0002
+        #expect(classify(.flagsChanged, 56, leftShift, [.fn]) == .otherKey(t(1), isEscape: false))
+        #expect(classify(.flagsChanged, 56, 0, [.fn]) == nil)
+        #expect(classify(.keyUp, 0, 0, [.fn]) == nil)
+    }
+
+    @Test func classifyUsesTheRightSideBitForRightOptionAndCommand() {
+        let rightOption = Shortcut(key: 61), rightCommand = Shortcut(key: 54)
+        #expect(classify(.flagsChanged, 61, 0x8_0040, [rightOption]) == .hotkeyDown(t(1)))
+        #expect(classify(.flagsChanged, 61, 0x8_0020, [rightOption]) == .hotkeyUp(t(1)))
+        #expect(classify(.flagsChanged, 54, 0x10_0010, [rightCommand]) == .hotkeyDown(t(1)))
+        #expect(classify(.flagsChanged, 54, 0x10_0008, [rightCommand]) == .hotkeyUp(t(1)))
+        #expect(classify(.flagsChanged, 62, 0x4_2000, [.rightControl]) == .hotkeyDown(t(1)))
+        #expect(classify(.flagsChanged, 62, 0x4_0001, [.rightControl]) == .hotkeyUp(t(1)))
+    }
+
+    @Test func aKeyWithModifiersGoesDownOnlyWithExactlyThoseAndUpOnItsOwnRelease() {
+        let optionSpace = Shortcut(key: 49, modifiers: [.option])
+        let option: UInt64 = 0x8_0020, shift: UInt64 = 0x2_0002
+        #expect(classify(.keyDown, 49, option, [optionSpace]) == .hotkeyDown(t(1)))
+        #expect(classify(.keyDown, 49, option, [optionSpace], repeat: true) == nil)
+        #expect(classify(.keyDown, 49, option | shift, [optionSpace]) == .otherKey(t(1), isEscape: false))
+        #expect(classify(.keyDown, 49, 0, [optionSpace]) == .otherKey(t(1), isEscape: false))
+        #expect(classify(.keyUp, 49, 0, [optionSpace]) == .hotkeyUp(t(1)))
+        #expect(classify(.flagsChanged, 58, 0, [optionSpace]) == nil, "letting go of Option first keeps the hold")
+    }
+
+    @Test func aFunctionKeyIgnoresTheFnFlagLaptopsAdd() {
+        let f5 = Shortcut(key: 96)
+        #expect(classify(.keyDown, 96, 0x80_0000, [f5]) == .hotkeyDown(t(1)))
+        #expect(classify(.keyUp, 96, 0x80_0000, [f5]) == .hotkeyUp(t(1)))
+    }
+
+    @Test func aModifierKeyWithModifiersNeedsThemHeldWhenItGoesDown() {
+        let commandRightOption = Shortcut(key: 61, modifiers: [.command])
+        let command: UInt64 = 0x10_0008, rightOption: UInt64 = 0x8_0040
+        #expect(classify(.flagsChanged, 61, command | rightOption, [commandRightOption]) == .hotkeyDown(t(1)))
+        #expect(classify(.flagsChanged, 61, rightOption, [commandRightOption]) == .otherKey(t(1), isEscape: false))
+        #expect(classify(.flagsChanged, 61, command, [commandRightOption]) == .hotkeyUp(t(1)))
+    }
+
+    @Test func shortcutsReadAsTheirKeys() {
+        #expect(Shortcut.fn.title == "fn")
+        #expect(Shortcut.rightControl.title == "Right Control")
+        #expect(Shortcut.pasteLast.title == "⌃⌘V")
+        #expect(Shortcut(key: 49, modifiers: [.option]).title == "⌥Space")
+        #expect(Shortcut(key: 61, modifiers: [.command]).title == "⌘ Right Option")
+        #expect(Shortcut(key: 96).title == "F5")
+        #expect(Shortcut(key: 2, modifiers: [.shift, .control, .option, .command]).title == "⌃⌥⇧⌘D")
+        #expect(Shortcut.phrase([.fn, Shortcut(key: 49, modifiers: [.option])]) == "fn or ⌥Space")
+    }
+
+    @Test func aShortcutThatWouldStopTypingIsRefused() {
+        #expect(Shortcut(key: 0).problem == "Add Control, Option or Command, so A still types.")
+        #expect(Shortcut(key: 0, modifiers: [.shift]).problem != nil)
+        #expect(Shortcut(key: 49, modifiers: [.option]).problem == nil)
+        #expect(Shortcut(key: 96).problem == nil, "a function key needs no modifier")
+        #expect(Shortcut(key: 61).problem == nil, "a modifier key alone is fine")
+        #expect(Shortcut(key: 57).problem == "Caps Lock can't be a shortcut.")
+        #expect(Shortcut(key: 53).problem != nil)
+    }
+
+    @Test func handsFreeStopButtonFinishesAndCancelButtonCancels() {
+        let handsFree: [KeyInput] = [.hotkeyDown(t(0)), .hotkeyUp(t(0.1)), .hotkeyDown(t(0.3)), .hotkeyUp(t(0.4))]
+        #expect(press(handsFree + [.stopClicked(t(6))]) == (.idle, [.start, .finish]))
+        #expect(press(handsFree + [.cancelClicked(t(6))]) == (.idle, [.start, .cancel]))
+    }
+
+    @Test func buttonClicksOutsideHandsFreeChangeNothing() {
+        let held = press([.hotkeyDown(t(0)), .tick(t(0.12)), .stopClicked(t(1)), .cancelClicked(t(1.1))])
+        #expect(held == (.pressed(since: t(0), shown: true), [.start]))
+        #expect(press([.stopClicked(t(0)), .cancelClicked(t(1))]) == (.idle, []))
+    }
+
+    @Test func classifyAnswersToEveryChosenHotkeyAndNoOther() {
+        let both: [Shortcut] = [.fn, .rightControl]
+        #expect(classify(.flagsChanged, 63, 0x80_0000, both, at: t(0)) == .hotkeyDown(t(0)))
+        #expect(classify(.flagsChanged, 62, 0x4_2000, both, at: t(1)) == .hotkeyDown(t(1)))
+        #expect(classify(.flagsChanged, 62, 0x4_2000, [.fn], at: t(2)) == .otherKey(t(2), isEscape: false))
+    }
+}
+
+@Suite("Shortcut recorder") struct ShortcutRecorderTests {
+    func record(_ events: [(KeyInput.EventKind, Int, UInt64)]) -> ShortcutRecorder.Outcome? {
+        var recorder = ShortcutRecorder()
+        for (kind, key, flags) in events {
+            if let outcome = recorder.handle(kind: kind, keyCode: key, flags: flags) { return outcome }
+        }
+        return nil
+    }
+
+    @Test func aKeyPressedWithModifiersRecordsTheCombination() {
+        let control: UInt64 = 0x4_0001, command: UInt64 = 0x10_0008
+        #expect(record([(.flagsChanged, 59, control), (.flagsChanged, 55, control | command), (.keyDown, 9, control | command)])
+            == .recorded(.pasteLast))
+    }
+
+    @Test func aModifierLetGoOnItsOwnRecordsThatKey() {
+        #expect(record([(.flagsChanged, 63, 0x80_0000), (.flagsChanged, 63, 0)]) == .recorded(.fn))
+        #expect(record([(.flagsChanged, 61, 0x8_0040), (.flagsChanged, 61, 0)]) == .recorded(Shortcut(key: 61)))
+    }
+
+    @Test func aModifierLetGoWithAnotherStillHeldKeepsTheOther() {
+        let command: UInt64 = 0x10_0008, rightOption: UInt64 = 0x8_0040
+        let events: [(KeyInput.EventKind, Int, UInt64)] = [
+            (.flagsChanged, 55, command), (.flagsChanged, 61, command | rightOption), (.flagsChanged, 61, command),
+        ]
+        #expect(record(events) == .recorded(Shortcut(key: 61, modifiers: [.command])))
+    }
+
+    @Test func escapeCancelsAndATypingKeyAloneIsRejected() {
+        #expect(record([(.keyDown, 53, 0)]) == .cancelled)
+        #expect(record([(.keyDown, 0, 0)]) == .rejected("Add Control, Option or Command, so A still types."))
+        #expect(record([(.flagsChanged, 57, 0x1_0000)]) == .rejected("Caps Lock can't be a shortcut."))
+        #expect(record([(.keyDown, 96, 0x80_0000)]) == .recorded(Shortcut(key: 96)))
+    }
+}
+
+@Suite("Cleanup rules") struct CleanupTests {
+    let cleanup = Cleanup(properNouns: ["Tailscale"] + Cleanup.calendarNames)
+
+    @Test func removesFillersAndCapitalizes() {
+        #expect(cleanup.apply("um so i think, uh, we should go") == "So I think we should go.")
+    }
+
+    @Test func questionStartsEndWithQuestionMark() {
+        #expect(cleanup.apply("can you check the tailscale node") == "Can you check the Tailscale node?")
+    }
+
+    @Test func calendarCasingSkipsMay() {
+        #expect(cleanup.apply("we may meet in may on friday") == "We may meet in may on Friday.")
+    }
+
+    @Test func youKnowBetweenCommasBecomesOneCommaAndIsKeptMidSentence() {
+        #expect(cleanup.apply("so, you know, it works") == "So, it works.")
+        #expect(cleanup.apply("it works, you know") == "It works.")
+        #expect(cleanup.apply("it works you know") == "It works you know.")
+    }
+
+    @Test func tidiesSpacingAndRepeatedPunctuation() {
+        #expect(cleanup.apply("Hello , world ,, again ;; done") == "Hello, world, again; done.")
+    }
+
+    @Test func fillerOnlyDictationBecomesEmpty() {
+        #expect(cleanup.apply("um, uh") == "")
+    }
+
+}
+
+@Suite("Alias replacement") struct AliasTests {
+    let rules = AliasRules(terms: [.init(text: "Beehiiv", aliases: ["behive", "bee hive"]),
+                                   .init(text: "Infisical", aliases: ["in physical"])])
+
+    @Test func replacesWholeWordsKeepingSuffixAndPunctuation() {
+        #expect(rules.apply("check behive's key in physical, then") == "check Beehiiv's key Infisical, then")
+    }
+
+    @Test func isCaseInsensitiveAndToleratesExtraSpaces() {
+        #expect(rules.apply("Bee  Hive. In Physical?") == "Beehiiv. Infisical?")
+    }
+
+    @Test func leavesLongerWordsAlone() {
+        #expect(rules.apply("behives and abehive") == "behives and abehive")
+    }
+
+    @Test func longestAliasWins() {
+        let overlapping = AliasRules(terms: [.init(text: "Pi", aliases: ["pie"]), .init(text: "PieChart", aliases: ["pie chart"])])
+        #expect(overlapping.apply("a pie chart and a pie") == "a PieChart and a Pi")
+    }
+
+    @Test func finisherWithVocabularyOffAppliesNoAliasesButKeepsCalendarCasing() {
+        let off = TextFinisher(vocabulary: nil)
+        #expect(off.finish(raw: "send it to behive on friday", boosted: nil) == "Send it to behive on Friday.")
+    }
+}
+
+@Suite("Punctuation restore after boosting") struct PunctuationTests {
+    @Test func carriesTheCommaTheReplacementSwallowed() {
+        #expect(PunctuationRestore.restore(raw: "ask post hog, put it", boosted: "ask PostHog put it")
+            == "ask PostHog, put it")
+    }
+
+    @Test func carriesSentenceEndWithoutDuplicating() {
+        #expect(PunctuationRestore.restore(raw: "launch it in bee hive.", boosted: "launch it in Beehiiv") == "launch it in Beehiiv.")
+        #expect(PunctuationRestore.restore(raw: "launch it in bee hive.", boosted: "launch it in Beehiiv.") == "launch it in Beehiiv.")
+    }
+
+    @Test func handlesTwoReplacementsAndOneAtTheStart() {
+        #expect(PunctuationRestore.restore(raw: "bee hive, then post hog. Done", boosted: "Beehiiv then PostHog Done")
+            == "Beehiiv, then PostHog. Done")
+    }
+
+    @Test func nothingReplacedLeavesTheBoostedTextAlone() {
+        #expect(PunctuationRestore.restore(raw: "all good here.", boosted: "all good here.") == "all good here.")
+    }
+
+    @Test func finisherRestoresThenAliasesThenCleans() {
+        let finisher = TextFinisher(vocabulary: Vocabulary(terms: [.init(text: "PostHog"), .init(text: "Infisical", aliases: ["in physical"])]))
+        let text = finisher.finish(raw: "um ask post hog, then rotate in physical tokens", boosted: "um ask PostHog then rotate in physical tokens")
+        #expect(text == "Ask PostHog, then rotate Infisical tokens.")
+    }
+}
+
+@Suite("Vocabulary file") struct VocabularyTests {
+    @Test func missingDirectiveMeansPointSeven() {
+        #expect(Vocabulary.parse("Beehiiv").vocabulary.minSimilarity == 0.7)
+    }
+
+    @Test func readsTheDirectiveTermsAndAliases() {
+        let (vocabulary, issues) = Vocabulary.parse("# names\n@min-similarity 0.85\n\nPostHog\nBeehiiv: behive , bee hive\r\n")
+        #expect(issues.isEmpty)
+        #expect(vocabulary == Vocabulary(terms: [.init(text: "PostHog"), .init(text: "Beehiiv", aliases: ["behive", "bee hive"])],
+                                         minSimilarity: 0.85))
+    }
+
+    @Test func badLinesBecomeIssuesWithLineNumbersAndAreSkipped() {
+        let file = "Hermes\n@min-similarity 0.2\n: orphan\nBeehiiv: behive,\n@max-terms 4\nhermes\nCodex"
+        let (vocabulary, issues) = Vocabulary.parse(file)
+        #expect(vocabulary.terms.map(\.text) == ["Hermes", "Codex"])
+        #expect(vocabulary.minSimilarity == 0.7)
+        #expect(issues.map(\.line) == [2, 3, 4, 5, 6])
+    }
+
+    @Test func aNewUserStartsWithNoWordsAndNoProblems() {
+        let (vocabulary, issues) = Vocabulary.parse(Vocabulary.bundledDefault)
+        #expect(vocabulary == Vocabulary(terms: []))
+        #expect(issues.isEmpty)
+    }
+
+}
+
+@Suite("Sound cues") struct CueTests {
+    @Test func startPlaysWhenTheBarFirstShowsNotAtKeyDown() {
+        #expect(Cue.after([.start], wasListening: false, isListening: false) == nil)
+        #expect(Cue.after([], wasListening: false, isListening: true) == .start)
+        #expect(Cue.after([], wasListening: true, isListening: true) == nil)
+    }
+
+    @Test func finishStopsAndOnlyASeenCaptureMakesTheCancelSound() {
+        #expect(Cue.after([.finish], wasListening: true, isListening: false) == .stop)
+        #expect(Cue.after([.cancel], wasListening: true, isListening: false) == .cancel)
+        #expect(Cue.after([.cancel], wasListening: false, isListening: false) == nil)
+        #expect(Cue.after([.finish], wasListening: false, isListening: false) == nil)
+    }
+
+    @Test func aChordBeforeTheBarDelayIsSilentFromPressToRelease() {
+        var machine = HotkeyMachine.idle
+        let timing = HotkeyTiming()
+        var cues: [Cue] = []
+        for input in [KeyInput.hotkeyDown(t(0)), .otherKey(t(0.05), isEscape: false), .hotkeyUp(t(0.2))] {
+            let before = machine.showsListening
+            let step = machine.handle(input, timing: timing)
+            if let cue = Cue.after(step.commands, wasListening: before, isListening: machine.showsListening) { cues.append(cue) }
+        }
+        #expect(cues.isEmpty)
+    }
+}
+
+@Suite("Bar placement") struct BarPlacementTests {
+    let screen = BarRect(x: 0, y: 40, width: 1440, height: 860)
+
+    @Test func topAndBottomCenterTheBodyAndSidesHugTheirEdge() {
+        #expect(BarEdge.bottom.place(width: 200, height: 40, in: screen, inset: 16) == BarRect(x: 620, y: 56, width: 200, height: 40))
+        #expect(BarEdge.top.place(width: 200, height: 40, in: screen, inset: 16) == BarRect(x: 620, y: 844, width: 200, height: 40))
+        #expect(BarEdge.left.place(width: 200, height: 40, in: screen, inset: 8) == BarRect(x: 8, y: 450, width: 200, height: 40))
+        #expect(BarEdge.right.place(width: 200, height: 40, in: screen, inset: 8) == BarRect(x: 1232, y: 450, width: 200, height: 40))
+    }
+
+    @Test func aSideBodyGrowsAwayFromItsEdge() {
+        let narrow = BarEdge.right.place(width: 100, height: 40, in: screen, inset: 8)
+        let wide = BarEdge.right.place(width: 400, height: 40, in: screen, inset: 8)
+        #expect(narrow.maxX == wide.maxX)
+        #expect(BarEdge.left.place(width: 100, height: 40, in: screen, inset: 8).minX
+            == BarEdge.left.place(width: 400, height: 40, in: screen, inset: 8).minX)
+    }
+
+    @Test func toastsSitAboveTheBodyExceptOnTheTopEdgeAndAlignLikeIt() {
+        let body = BarRect(x: 1232, y: 450, width: 200, height: 40)
+        #expect(BarEdge.right.placeToast(width: 300, height: 30, against: body, gap: 8) == BarRect(x: 1132, y: 498, width: 300, height: 30))
+        #expect(BarEdge.left.placeToast(width: 300, height: 30, against: body, gap: 8).minX == body.minX)
+        #expect(BarEdge.top.placeToast(width: 100, height: 30, against: body, gap: 8) == BarRect(x: 1282, y: 412, width: 100, height: 30))
+    }
+
+    @Test func aCardBesideASideBarStaysOnTheScreen() {
+        let area = BarRect(x: 0, y: 0, width: 1440, height: 900)
+        let leftBody = BarEdge.left.place(width: 120, height: 40, in: area, inset: 8)
+        let leftCard = BarEdge.left.placeToast(width: 520, height: 160, against: leftBody, gap: 10).moved(into: area)
+        #expect(leftCard.minX >= area.minX && leftCard.maxX <= area.maxX && leftCard.maxY <= area.maxY)
+        let rightBody = BarEdge.right.place(width: 120, height: 40, in: area, inset: 8)
+        let rightCard = BarEdge.right.placeToast(width: 520, height: 160, against: rightBody, gap: 10).moved(into: area)
+        #expect(rightCard.minX >= area.minX && rightCard.maxX <= area.maxX)
+        let topBody = BarEdge.top.place(width: 300, height: 40, in: area, inset: 16)
+        #expect(BarEdge.top.placeToast(width: 520, height: 160, against: topBody, gap: 10).moved(into: area).minY >= area.minY)
+    }
+
+    @Test func aDropSnapsToTheNearestEdgeMiddle() {
+        #expect(BarEdge.nearest(x: 700, y: 60, in: screen) == .bottom)
+        #expect(BarEdge.nearest(x: 700, y: 880, in: screen) == .top)
+        #expect(BarEdge.nearest(x: 30, y: 400, in: screen) == .left)
+        #expect(BarEdge.nearest(x: 1400, y: 820, in: screen) == .right)
+    }
+}
+
+@Suite("Microphone choice") struct MicrophoneChoiceTests {
+    let shure = MicrophoneInput(uid: "AppleUSBAudioEngine:Shure", kind: .wired)
+    let builtIn = MicrophoneInput(uid: "BuiltInMicrophoneDevice", kind: .builtIn)
+    let airPods = MicrophoneInput(uid: "F8-1E-49-9B-27-6C:input", kind: .bluetooth)
+    let blackHole = MicrophoneInput(uid: "BlackHole2ch_UID", kind: .other)
+    let webcam = MicrophoneInput(uid: "AppleUSBAudioEngine:Webcam", kind: .wired)
+
+    private func automatic(_ inputs: [MicrophoneInput], systemDefault: MicrophoneInput? = nil, lidClosed: Bool = false) -> MicrophoneSource {
+        MicrophoneChoice.automatic.source(among: inputs, systemDefault: systemDefault?.uid, lidClosed: lidClosed)
+    }
+
+    @Test func aChosenDeviceIsUsedWhenConnectedAndFallsBackByNameWhenNot() {
+        let chosen = MicrophoneChoice.device(uid: shure.uid, name: "Shure MV7+")
+        #expect(chosen.source(among: [builtIn, shure], systemDefault: builtIn.uid, lidClosed: false) == .device(uid: shure.uid))
+        #expect(chosen.source(among: [builtIn], systemDefault: builtIn.uid, lidClosed: false) == .fallback(missing: "Shure MV7+"))
+        #expect(MicrophoneChoice.systemDefault.source(among: [], systemDefault: nil, lidClosed: false) == .systemDefault)
+    }
+
+    @Test func automaticPrefersAWiredMicrophoneThenTheMacsOwnThenBluetooth() {
+        #expect(automatic([airPods, builtIn, shure], systemDefault: airPods) == .device(uid: shure.uid))
+        #expect(automatic([airPods, builtIn], systemDefault: airPods) == .device(uid: builtIn.uid))
+        #expect(automatic([airPods, blackHole], systemDefault: blackHole) == .device(uid: airPods.uid))
+    }
+
+    @Test func automaticSkipsTheMacsOwnMicrophoneWithTheLidClosed() {
+        #expect(automatic([builtIn, airPods], systemDefault: builtIn, lidClosed: true) == .device(uid: airPods.uid))
+        #expect(automatic([builtIn, shure], lidClosed: true) == .device(uid: shure.uid))
+    }
+
+    @Test func automaticNeverPicksAVirtualDeviceAndFollowsTheDefaultWhenNothingElseIsThere() {
+        #expect(automatic([blackHole], systemDefault: blackHole) == .systemDefault)
+        #expect(automatic([builtIn, blackHole], systemDefault: builtIn, lidClosed: true) == .systemDefault)
+        #expect(automatic([]) == .systemDefault)
+    }
+
+    @Test func automaticBreaksATieWithTheSystemDefaultThenListOrder() {
+        #expect(automatic([webcam, shure], systemDefault: shure) == .device(uid: shure.uid))
+        #expect(automatic([webcam, shure], systemDefault: builtIn) == .device(uid: webcam.uid))
+    }
+
+    @Test func newInstallsStartOnAutomaticAndAStoredChoiceIsKept() throws {
+        #expect(IslandSettings().microphone == .automatic)
+        var stored = IslandSettings()
+        stored.microphone = .systemDefault
+        let decoded = try JSONDecoder().decode(IslandSettings.self, from: JSONEncoder().encode(stored))
+        #expect(decoded.microphone == .systemDefault)
+    }
+
+    @Test func anUnpluggedMicrophoneIsMentionedOnceUntilItIsSeenAgain() {
+        let shure = MicrophoneSource.fallback(missing: "Shure MV7+")
+        var missing = MissingMicrophone()
+        #expect(missing.toMention(for: shure) == "Shure MV7+")
+        #expect(missing.toMention(for: shure) == "Shure MV7+", "a chord that never showed the bar does not count")
+        missing.didMention("Shure MV7+")
+        #expect(missing.toMention(for: shure) == nil)
+        #expect(missing.toMention(for: .fallback(missing: "AirPods Pro")) == "AirPods Pro")
+        #expect(missing.toMention(for: shure) == nil)
+        #expect(missing.toMention(for: .device(uid: "AppleUSBAudioEngine:Shure")) == nil)
+        #expect(missing.toMention(for: shure) == "Shure MV7+", "unplugged again after it was back")
+        missing.didMention("Shure MV7+")
+        #expect(missing.toMention(for: .systemDefault) == nil)
+        #expect(missing.toMention(for: shure) == "Shure MV7+", "chosen again after System Default")
+    }
+}
+
+@Suite("Boosting windows") struct CtcWindowTests {
+    @Test func audioUpToFifteenSecondsIsOneWindow() {
+        #expect(CtcWindows.ranges(count: 16_000) == [0..<16_000])
+        #expect(CtcWindows.ranges(count: 240_000) == [0..<240_000])
+    }
+
+    @Test func longerAudioRunsFifteenSecondWindowsEveryThirteenSeconds() {
+        #expect(CtcWindows.ranges(count: 500_000) == [0..<240_000, 208_000..<448_000, 416_000..<500_000])
+        #expect(CtcWindows.ranges(count: 448_000) == [0..<240_000, 208_000..<448_000])
+    }
+
+    @Test func aWindowCompletedWhileHeldIsTheSameWindowAtRelease() {
+        for count in [240_000, 240_001, 447_999, 448_000, 448_001, 1_744_000] {
+            for (index, range) in CtcWindows.ranges(count: count).enumerated() where CtcWindows.window(index).upperBound <= count {
+                #expect(range == CtcWindows.window(index), "count \(count), window \(index)")
+            }
+        }
+    }
+
+    @Test func overlappingFramesAverageInProbabilitySpace() {
+        let first = Array(repeating: [Float(log(0.2)), Float(log(0.8))], count: 40)
+        let second = Array(repeating: [Float(log(0.6)), Float(log(0.4))], count: 40)
+        let merged = CtcWindows.merge([first, second], frameDuration: 0.0625, sampleRate: 16_000)
+        #expect(merged.count == 48)
+        #expect(merged[7] == first[7])
+        #expect(abs(exp(Double(merged[8][0])) - 0.4) < 1e-6)
+        #expect(abs(exp(Double(merged[39][1])) - 0.6) < 1e-6)
+        #expect(merged[40] == second[32])
+    }
+
+    @Test func oneWindowIsReturnedAsIs() {
+        let frames: [[Float]] = [[-1, -2], [-3, -4]]
+        #expect(CtcWindows.merge([frames], frameDuration: 0.08, sampleRate: 16_000) == frames)
+    }
+}
