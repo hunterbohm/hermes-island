@@ -27,11 +27,13 @@ enum Mode {
                    sound came out. The voice is en_us_Preston unless given.
                HermesIsland --test-talk [--preset ID] [--command 'hermes acp'] [--host HOST] [--voice MODEL:VOICE]
                          [--voice-server URL [--voice-name NAME]] [--option ID=VALUE]... [--note TEXT] [--out PATH.wav]
-                         [--call-back ABOUT RESULT_FILE] [--thread FILE [--start-over]] [--models DIR] CLIP.wav...
+                         [--call-back ABOUT RESULT_FILE [--ring SECONDS]] [--thread FILE [--start-over]] [--models DIR]
+                         CLIP.wav...
                    Holds a live talk with no microphone or speakers: each clip is played in as your next turn, in real
                    time, and the agent's voice is made but not played. One JSON line per turn with its timings, then one
                    with the session. --thread FILE remembers the session in FILE; without it nothing is remembered.
-                   --call-back starts the talk as a call back about ABOUT with the result in RESULT_FILE.
+                   --call-back starts the talk as a call back about ABOUT with the result in RESULT_FILE. --ring
+                   SECONDS first readies the agent and the voice for that long, as the island does while it rings.
                HermesIsland call --about TEXT [--from NAME] [--agent ID_OR_NAME] [--ring SECONDS] [--result-file PATH] < RESULT
                    Calls you back with a finished job's result: the running app rings on the island, and when you answer,
                    a live talk starts in which the agent says the result. Prints one JSON line per status. Exits 0 when
@@ -90,6 +92,7 @@ enum Mode {
                         let about = try Self.value(of: argument, from: &rest)
                         let file = try Self.value(of: argument, from: &rest)
                         options.callBack = (about, try String(contentsOfFile: file, encoding: .utf8))
+                    case "--ring": options.ring = try Self.number(of: argument, from: &rest, Double.init, in: 0...60)
                     case "--option":
                         let pair = try Self.value(of: argument, from: &rest).split(separator: "=", maxSplits: 1).map(String.init)
                         guard pair.count == 2 else { throw IslandError("--option takes ID=VALUE") }

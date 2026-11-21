@@ -21,6 +21,8 @@ import Foundation
         var talkOptions: [ConfigChoice] = []
         /// Starts the talk as a call back about this, with this result, before the first clip.
         var callBack: (about: String, result: String)?
+        /// Seconds the call back rings before it is answered, while the agent and the voice get ready.
+        var ring = 0.0
         /// The file that remembers the agent's last talk session. A talk run with one picks up where the last run with it
         /// ended; with none, every run is a new conversation, and nothing is written, so a test never moves the thread of a
         /// real install.
@@ -57,9 +59,11 @@ import Foundation
 
         let input = ClipInput(clips: clips), speaker = SilentSpeaker(), pool = AgentPool(threadsAt: options.threadFile)
         if options.startOver { pool.startOver(agent.id) }
-        let opening = options.callBack.map { call in
-            TalkOpening(greeting: CallbackPrompt.greeting(from: agent.name, about: call.about),
-                        prompt: CallbackPrompt.opening(from: agent.name, about: call.about, result: call.result))
+        let opening = options.callBack.map { CallbackPrompt.opening(from: agent.name, about: $0.about, result: $0.result) }
+        if opening != nil, options.ring > 0 {
+            pool.warmUp(agent)
+            Task { try? await Voices.provider(for: options.voice).prepare() }
+            try? await Task.sleep(for: .seconds(options.ring))
         }
         let talk = Talk(agent: agent, pool: pool, engine: engine, voice: Voices.provider(for: options.voice), input: input, speaker: speaker,
                         opening: opening)
@@ -122,6 +126,8 @@ import Foundation
             "agent": .string(agent.name), "turns": .number(Double(turns)), "seconds": .number(((Instant.now - started) * 10).rounded() / 10),
             "ended": .string(String(describing: reason)),
         ]
+        // From the start, which for a call back is the moment you answer, to the first sound.
+        if let first = speaker.firstPlay { summary["firstSound"] = .number(((first - started) * 100).rounded() / 100) }
         if let session = talk.sessionID { summary["session"] = .string(session) }
         print(String(decoding: JSONValue.object(summary).data(), as: UTF8.self))
         pool.stopAll()

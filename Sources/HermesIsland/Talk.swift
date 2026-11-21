@@ -99,13 +99,6 @@ struct TalkTurnReport {
     var failed: String?
 }
 
-/// How a call back starts its talk: the voice on this Mac says `greeting` at once, and once it has played and the
-/// session is open, `prompt` goes to the agent as the first turn, so the agent's first words are the result.
-struct TalkOpening {
-    var greeting: String
-    var prompt: String
-}
-
 /// How a talk ended.
 enum TalkEnd: Equatable {
     case byYou
@@ -195,17 +188,16 @@ enum TalkEnd: Equatable {
     private var permissionTimeout: Task<Void, Never>?
     /// What this talk's session carries beyond the agent's own settings, such as T3 Code's tools.
     private var extras: TalkExtras?
-    /// A call back's opening, until its prompt is sent.
-    private var opening: TalkOpening?
-    /// The greeting is still to finish playing.
-    private var greeting = false
+    /// A call back's first turn, the result for the agent to say, until it is sent. Nothing plays before the agent's
+    /// first words: the ring already showed who is calling and what about.
+    private var opening: String?
     /// The turn that carries the opening, until it is said.
     private var openingTurn: Int?
     /// Some of the agent's reply to the opening has played, not only a tool line.
     private var openingHeard = false
     /// A line of the reply to the opening couldn't be voiced, so part of the result may be missing: not said.
     private var openingLost = false
-    /// Until then the opening can't be talked over or superseded: a "hello" after the greeting would cancel the result.
+    /// Until then the opening can't be talked over or superseded: a "hello" as you answer would cancel the result.
     private var openingPending: Bool { opening != nil || (openingTurn != nil && !openingHeard) }
 
     private struct Line {
@@ -223,7 +215,7 @@ enum TalkEnd: Equatable {
     private var utterances = 0
 
     init(agent: AgentConnection, pool: AgentPool, engine: SpeechEngine, voice: any VoiceProvider, input: any TalkInput,
-         speaker: any TalkSpeaker, opening: TalkOpening? = nil, cue: Double = 0) {
+         speaker: any TalkSpeaker, opening: String? = nil, cue: Double = 0) {
         (self.agent, self.pool, self.engine, self.voice, self.input, self.speaker) = (agent, pool, engine, voice, input, speaker)
         ear = TalkEar(cue: cue)
         self.opening = opening
@@ -274,10 +266,8 @@ enum TalkEnd: Equatable {
                 await self.say(line)
             }
         }
-        if let opening {
-            greeting = true
-            queue(opening.greeting, turn: turn)
-        }
+        // Answered, the call shows the agent at work until its first words, not "Connecting to", which reads as a new talk.
+        if opening != nil { bar = TalkBar(agent: bar.agent, phase: .thinking, activity: "Calling back") }
         connecting = Task { [weak self] in await self?.connect() }
         ticker = Task { [weak self] in
             while !Task.isCancelled {
@@ -299,7 +289,7 @@ enum TalkEnd: Equatable {
             (self.client, sessionID, self.extras, connected) = (client, id, extras, true)
             log.notice("talk with \(agent.name, privacy: .public) in \(continued ? "the earlier" : "a new", privacy: .public) session \(id, privacy: .public)")
             if opening != nil {
-                if !greeting { sendOpening() }
+                sendOpening()
             } else if let waitingTurn {
                 self.waitingTurn = nil
                 transcribe(waitingTurn)
@@ -508,11 +498,11 @@ enum TalkEnd: Equatable {
 
     // MARK: The agent's turn
 
-    /// Sends a call back's result as the first turn, once the greeting has played and the session is open.
+    /// Sends a call back's result as the first turn, once the session is open.
     private func sendOpening() {
-        guard connected, !greeting, let opening else { return }
+        guard connected, let opening else { return }
         self.opening = nil
-        send(opening.prompt, clock: TurnClock(speechEnd: .now))
+        send(opening, clock: TurnClock(speechEnd: .now))
         (openingTurn, openingHeard, openingLost) = (turn, false, false)
         bar.line = ""
         bar.activity = "Calling back"
@@ -757,10 +747,6 @@ enum TalkEnd: Equatable {
             log.error("talk voice failed: \(error.localizedDescription, privacy: .public)")
             onNotice?(error.localizedDescription)
             if openingTurn == line.turn { openingLost = true }
-            if greeting {
-                greeting = false
-                sendOpening()
-            }
         }
     }
 
@@ -783,11 +769,6 @@ enum TalkEnd: Equatable {
     /// Everything handed to the speaker has played.
     private func idle() {
         guard !ended else { return }
-        if greeting {
-            greeting = false
-            if !connected { bar = TalkBar(agent: bar.agent, phase: .connecting, activity: "Calling back") }
-            return sendOpening()
-        }
         guard !ear.isHearing else { return }
         if replyDone, permission == nil { return turnOver() }
         ear.agentWorking(at: .now)
