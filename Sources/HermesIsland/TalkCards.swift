@@ -268,16 +268,7 @@ private struct TalkCardView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 14).padding(.vertical, 12)
         case .show(.image(let url)):
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image): image.resizable().scaledToFit()
-                case .failure: Text("The image didn't load.").font(.system(size: 12.5)).foregroundStyle(Theme.secondary).padding(.vertical, 20)
-                default: ProgressView().controlSize(.small).frame(height: 120)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: 320)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .padding(12)
+            RemoteImage(url: url)
         case .show(.text(let text)):
             let code = text.contains("\n") && text.contains { "{}();=<>".contains($0) }
             ScrollView {
@@ -318,6 +309,45 @@ private struct TalkCardView: View {
                 .padding(.top, 4)
             }
             .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 12)
+        }
+    }
+}
+
+/// An image the agent named by its web address. It loads only when you tap, because the address is the agent's words
+/// and fetching it by itself would let a reply send what it holds to any server.
+private struct RemoteImage: View {
+    let url: URL
+    @State private var shown = false
+
+    var body: some View {
+        if shown {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image): image.resizable().scaledToFit()
+                case .failure: Text("The image didn't load.").font(.system(size: 12.5)).foregroundStyle(Theme.secondary).padding(.vertical, 20)
+                default: ProgressView().controlSize(.small).frame(height: 120)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: 320)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(12)
+        } else {
+            Button { shown = true } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "photo").font(.system(size: 13)).foregroundStyle(Theme.blue)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(url.host ?? url.absoluteString).font(.system(size: 13.5, weight: .medium)).lineLimit(1)
+                        Text(url.absoluteString).font(.system(size: 11.5)).foregroundStyle(Theme.secondary).lineLimit(1).truncationMode(.middle)
+                    }
+                    Spacer(minLength: 0)
+                    Text("Load").font(.system(size: 12.5)).foregroundStyle(.white)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.blue))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 14).padding(.vertical, 12)
         }
     }
 }

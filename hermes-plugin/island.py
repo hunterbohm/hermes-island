@@ -206,10 +206,14 @@ def fetch_source(commit: str, cache: Path) -> tuple[Optional[Path], str]:
     steps = [["/usr/bin/git", "clone", "-q", "--filter=blob:none", "--no-checkout", REPO, str(root)],
              git + ["-c", "advice.detachedHead=false", "checkout", "-q", "--detach", commit]]
     for step in steps:
-        done = subprocess.run(step, capture_output=True, text=True, check=False, timeout=600)
-        if done.returncode != 0:
+        try:
+            done = subprocess.run(step, capture_output=True, text=True, check=False, timeout=600)
+            failure = done.stderr.strip() if done.returncode != 0 else ""
+        except subprocess.TimeoutExpired:
+            failure = "git took longer than 10 minutes"
+        if failure:
             shutil.rmtree(root, ignore_errors=True)
-            return None, f"Could not get {REPO} at {commit}: {done.stderr.strip()}"
+            return None, f"Could not get {REPO} at {commit}: {failure}"
     if head() != commit:
         shutil.rmtree(root, ignore_errors=True)
         return None, f"The checkout of {REPO} is not at {commit}."
