@@ -46,7 +46,7 @@ With Hermes on this Mac there is nothing to do: the app starts `hermes acp`. Wit
 
 	"/Applications/Hermes Island.app/Contents/MacOS/HermesIsland" agent --hermes --host HOST
 
-The [Hermes plugin](hermes-plugin/README.md) adds call backs, a job that rings the island when it is done, and `hermes island status|setup|build`. Install it with `hermes plugins install` from this repo's `hermes-plugin` folder once it is in the catalog.
+The [Hermes plugin](hermes-plugin/README.md) adds call backs, a job that rings the island when it is done, and `hermes island status|setup|build`. Install it from the Hermes plugin catalog with `hermes plugins install hermes-island`, then `hermes island build --install` clones this repository at the commit the plugin came from, builds the app and installs it.
 
 ## Settings
 

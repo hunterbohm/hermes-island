@@ -174,6 +174,48 @@ def source_checkout(plugin_dir: Path) -> Optional[Path]:
     return root if (root / "scripts" / "build-app.sh").is_file() else None
 
 
+def installed_commit(plugin_dir: Path) -> Optional[str]:
+    """The commit Hermes installed this plugin from, read from the installer's record beside it: the catalog's
+    pinned sha, else the revision a git install checked out. None when Hermes did not install it."""
+    plugin_dir = plugin_dir.resolve()
+    try:
+        rows = json.loads((plugin_dir.parent / ".install-metadata.json").read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+    record = rows.get(plugin_dir.name) if isinstance(rows, dict) else None
+    if not isinstance(record, dict):
+        return None
+    catalog = record.get("catalog") if isinstance(record.get("catalog"), dict) else {}
+    commit = str(catalog.get("sha") or record.get("revision") or "").lower()
+    return commit if len(commit) == 40 and all(c in "0123456789abcdef" for c in commit) else None
+
+
+def fetch_source(commit: str, cache: Path) -> tuple[Optional[Path], str]:
+    """A checkout of the app's repository at exactly `commit`, cloned into `cache` once and reused after."""
+    root = cache / commit
+    git = ["/usr/bin/git", "-C", str(root)]
+
+    def head() -> str:
+        return subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True, check=False).stdout.strip()
+
+    if (root / "scripts" / "build-app.sh").is_file() and head() == commit:
+        return root, f"Using the source at {commit[:12]} in {root}."
+    shutil.rmtree(root, ignore_errors=True)
+    cache.mkdir(parents=True, exist_ok=True)
+    # The full history, without file contents until checkout: build-app.sh numbers the build by its commit count.
+    steps = [["/usr/bin/git", "clone", "-q", "--filter=blob:none", "--no-checkout", REPO, str(root)],
+             git + ["-c", "advice.detachedHead=false", "checkout", "-q", "--detach", commit]]
+    for step in steps:
+        done = subprocess.run(step, capture_output=True, text=True, check=False, timeout=600)
+        if done.returncode != 0:
+            shutil.rmtree(root, ignore_errors=True)
+            return None, f"Could not get {REPO} at {commit}: {done.stderr.strip()}"
+    if head() != commit:
+        shutil.rmtree(root, ignore_errors=True)
+        return None, f"The checkout of {REPO} is not at {commit}."
+    return root, f"Cloned {REPO} at {commit[:12]} into {root}."
+
+
 def build_steps(root: Path) -> list[list[str]]:
     scripts = root / "scripts"
     return [[str(scripts / "fetch-deps.sh")], [str(scripts / "test.sh")], [str(scripts / "build-app.sh")]]
