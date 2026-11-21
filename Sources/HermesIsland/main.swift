@@ -35,6 +35,8 @@ case .talkTest(let options):
     dispatchMain()
 case .call(let options):
     exit(MainActor.assumeIsolated { CallCommand.run(options) })
+case .agent(let options):
+    exit(MainActor.assumeIsolated { AgentCommand.run(options) })
 case .usage(let message):
     FileHandle.standardError.write(Data((message + "\n").utf8))
     exit(2)

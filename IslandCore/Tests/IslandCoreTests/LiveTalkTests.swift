@@ -977,3 +977,24 @@ struct TalkPermissionTests {
         #expect(ConfigChoice.sparing([.model("a")], from: [.model("b"), .option(id: "x", value: "1")]) == [.option(id: "x", value: "1")])
     }
 }
+
+@Suite("Setting up Hermes") struct UseHermesTests {
+    @Test func aNewHermesBecomesTheTalksAgent() {
+        var settings = IslandSettings()
+        settings.agents.agents = [AgentPreset.with(id: "claude")!.connection()]
+        settings.useHermes(host: " home-mac ")
+        #expect(settings.talkAgent?.presetID == "hermes")
+        #expect(settings.talkAgent?.remoteHost == "home-mac")
+        #expect(settings.agents.agents.count == 2)
+    }
+
+    @Test func aHermesAlreadySetUpKeepsItsOwnNoteAndOnlyMoves() {
+        var settings = IslandSettings.firstRun
+        settings.agents.agents[0].talkNote = "My own note."
+        settings.agents.agents[0].remoteHost = "home-mac"
+        settings.useHermes(host: "")
+        #expect(settings.agents.agents.count == 1)
+        #expect(settings.talkAgent?.remoteHost == nil)
+        #expect(settings.talkAgent?.talkNote == "My own note.")
+    }
+}

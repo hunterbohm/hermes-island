@@ -144,7 +144,6 @@ public struct AgentConnection: Equatable, Codable, Sendable, Identifiable {
         let preset = AgentPreset.with(id: presetID)
         talkOptions = (try? container.decodeIfPresent([ConfigChoice].self, forKey: .talkOptions)) ?? preset?.talkOptions ?? []
         talkNote = (try? container.decodeIfPresent(String.self, forKey: .talkNote)) ?? preset?.talkNote ?? ""
-        // A note left as an earlier version of the preset had it follows the preset; one written by hand stays.
         talkT3 = (try? container.decodeIfPresent(Bool.self, forKey: .talkT3)) ?? preset?.talkT3 ?? false
         continuesTalks = (try? container.decodeIfPresent(Bool.self, forKey: .continuesTalks)) ?? preset?.continuesTalks ?? false
     }

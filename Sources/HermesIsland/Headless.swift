@@ -10,6 +10,7 @@ enum Mode {
     case ttsCheck(Headless.TtsCheckOptions)
     case talkTest(TalkTest.Options)
     case call(CallCommand.Options)
+    case agent(AgentCommand.Options)
     case usage(String)
 
     static let usage = """
@@ -37,6 +38,9 @@ enum Mode {
                    the result was said, 3 when it should be texted instead, 4 when you are busy, 5 when it could not ring.
                HermesIsland call --check
                    Prints whether this Mac says you are busy now, as JSON, and exits 0 when free and 4 when busy.
+               HermesIsland agent [--hermes [--host HOST]]
+                   Prints the agent a talk goes to, as JSON. --hermes makes it Hermes over ACP, on this Mac or over ssh
+                   on HOST; a Hermes already set up keeps its other settings. The running app applies it at once.
         """
 
     /// Anything that is not a headless flag runs the app, since LaunchServices can pass its own arguments.
@@ -99,6 +103,17 @@ enum Mode {
                 if let server { options.voice = .server(url: server, voice: serverVoice) }
                 if options.clips.isEmpty { throw IslandError("--test-talk needs at least one CLIP.wav") }
                 self = .talkTest(options)
+            case "agent":
+                var options = AgentCommand.Options()
+                while let argument = rest.popFirst() {
+                    switch argument {
+                    case "--hermes": options.hermes = true
+                    case "--host": options.host = try Self.value(of: argument, from: &rest)
+                    default: throw IslandError("unknown option \(argument)")
+                    }
+                }
+                if options.host != nil, !options.hermes { throw IslandError("--host goes with --hermes") }
+                self = .agent(options)
             case "call":
                 var options = CallCommand.Options()
                 while let argument = rest.popFirst() {

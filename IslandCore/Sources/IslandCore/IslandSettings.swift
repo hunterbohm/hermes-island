@@ -1,7 +1,7 @@
 import Foundation
 
-/// What the island keeps: who you talk with, the voice, the microphone and the cues. Its keys match Hermes Island's
-/// settings, so the first launch can take over a Hermes Island user's agents and voice as they are.
+/// What the island keeps: who you talk with, the voice, the microphone and the cues. Its keys match Lip Service's
+/// settings, so the first launch can take over a Lip Service user's agents and voice as they are.
 public struct IslandSettings: Equatable, Codable, Sendable {
     public var agents = AgentSettings()
     public var liveTalk = LiveTalkSettings()
@@ -39,5 +39,22 @@ public struct IslandSettings: Equatable, Codable, Sendable {
             settings.agents.defaultAgent = agent.id
         }
         return settings
+    }
+
+    /// `HermesIsland agent --hermes`: talks go to Hermes over ACP, on this Mac, or over ssh on `host`. A Hermes already
+    /// set up keeps its command, note and options; only where it runs changes.
+    public mutating func useHermes(host: String?) {
+        let host = host?.trimmingCharacters(in: .whitespaces)
+        let remoteHost = host?.isEmpty == false ? host : nil
+        if let index = agents.agents.firstIndex(where: { $0.presetID == "hermes" }) {
+            agents.agents[index].remoteHost = remoteHost
+            liveTalk.agentID = agents.agents[index].id
+        } else if let hermes = AgentPreset.with(id: "hermes") {
+            var agent = hermes.connection()
+            agent.remoteHost = remoteHost
+            agents.agents.append(agent)
+            liveTalk.agentID = agent.id
+            if agents.defaultAgent == nil { agents.defaultAgent = agent.id }
+        }
     }
 }
