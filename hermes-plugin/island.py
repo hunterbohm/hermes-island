@@ -210,6 +210,9 @@ def install(built: Path, target: Path) -> tuple[int, str]:
         if subprocess.run(["/usr/bin/pgrep", "-x", "HermesIsland"], capture_output=True, check=False).returncode == 0:
             break
         time.sleep(0.5)
+    # The opened copy decides at launch whether to hand over to the login item, and macOS takes a few seconds to
+    # note the new build, so the login item goes back on only after that.
+    time.sleep(4)
     if login:
         subprocess.run([str(target / binary), "--open-at-login", "on"], capture_output=True, check=False, timeout=30)
     return 0, f"Installed {target}. Allow Accessibility and the microphone when macOS asks."
