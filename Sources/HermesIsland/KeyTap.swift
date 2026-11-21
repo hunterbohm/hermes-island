@@ -16,7 +16,7 @@ import os
     var talking = false
     var isRunning: Bool { tap != nil }
 
-    private let log = Logger(subsystem: "com.hunterbohm.hermesisland", category: "keys")
+    private let log = Logger(subsystem: "dev.hermes-island.app", category: "keys")
     private var tap: CFMachPort?
     private var trustTimer: Timer?
     private var doubleTap = DoubleTapDetector()

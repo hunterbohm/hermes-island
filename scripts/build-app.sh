@@ -31,7 +31,7 @@ mkdir -p "$contents/MacOS" "$contents/Resources" "$contents/Library/LaunchAgents
 cp "$binary_dir/HermesIsland" "$contents/MacOS/HermesIsland"
 cp "$root/Info.plist" "$contents/Info.plist"
 # The launch agent that starts the app at login and again after a crash. The signature seals it with the bundle.
-agent="com.hunterbohm.hermesisland.agent"
+agent="dev.hermes-island.app.agent"
 cp "$root/Resources/$agent.plist" "$contents/Library/LaunchAgents/"
 plutil -lint "$contents/Library/LaunchAgents/$agent.plist" >/dev/null
 for check in "Label=$agent" "BundleProgram=Contents/MacOS/HermesIsland" "KeepAlive.Crashed=true"; do
@@ -79,7 +79,7 @@ fi
 
 # The umask above keeps build files private, but every account on the Mac must be able to open the app.
 chmod -R go+rX "$staging/$bundle"
-"$root/scripts/sign.sh" "$staging/$bundle" com.hunterbohm.hermesisland "$root/Resources/HermesIsland.entitlements"
+"$root/scripts/sign.sh" "$staging/$bundle" dev.hermes-island.app "$root/Resources/HermesIsland.entitlements"
 codesign --verify --strict --verbose=2 "$staging/$bundle"
 if [[ -e "$app" ]]; then mv "$app" "$staging/old.app"; fi
 mv "$staging/$bundle" "$app"

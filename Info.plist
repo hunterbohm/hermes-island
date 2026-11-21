@@ -9,7 +9,7 @@
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.hunterbohm.hermesisland</string>
+	<string>dev.hermes-island.app</string>
 	<key>CFBundleName</key>
 	<string>Hermes Island</string>
 	<key>CFBundlePackageType</key>

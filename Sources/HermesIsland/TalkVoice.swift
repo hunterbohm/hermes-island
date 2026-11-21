@@ -91,7 +91,7 @@ actor OnMacVoices {
     private var loaded: (voice: OnMacVoice, model: OnMacVoiceModel)?
     private var loading: (voice: OnMacVoice, task: Task<OnMacVoiceModel, any Error>)?
     private var release: Task<Void, Never>?
-    private let log = Logger(subsystem: "com.hunterbohm.hermesisland", category: "talk")
+    private let log = Logger(subsystem: "dev.hermes-island.app", category: "talk")
 
     func model(for voice: OnMacVoice) async throws -> OnMacVoiceModel {
         release?.cancel()
@@ -101,7 +101,7 @@ actor OnMacVoices {
         let task = Task { () throws -> OnMacVoiceModel in
             let started = Instant.now
             let model = try await OnMacVoiceModel.load(voice)
-            Logger(subsystem: "com.hunterbohm.hermesisland", category: "talk")
+            Logger(subsystem: "dev.hermes-island.app", category: "talk")
                 .info("voice \(voice.id, privacy: .public) ready in \(Instant.now - started, format: .fixed(precision: 2)) s")
             return model
         }
@@ -201,7 +201,7 @@ struct ServerVoiceProvider: VoiceProvider {
     private var generation = 0
     private var observer: (any NSObjectProtocol)?
     private let meter = VoiceTap(chunkLatency: 0.06)
-    private let log = Logger(subsystem: "com.hunterbohm.hermesisland", category: "talk")
+    private let log = Logger(subsystem: "dev.hermes-island.app", category: "talk")
 
     var voice: VoiceTap? { meter }
     var isPlaying: Bool { !queue.isEmpty }

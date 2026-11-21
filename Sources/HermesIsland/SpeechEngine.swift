@@ -321,7 +321,7 @@ private struct Worker {
         capture = CaptureBuild(names: names, vocabulary: vocabulary, models: boostingModels)
     }
 
-    static let log = Logger(subsystem: "com.hunterbohm.hermesisland", category: "dictation")
+    static let log = Logger(subsystem: "dev.hermes-island.app", category: "dictation")
 
     /// One second of silence through both models, so the next dictation finds them awake.
     mutating func warm() async {

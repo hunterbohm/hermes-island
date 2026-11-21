@@ -9,8 +9,8 @@ set -euo pipefail
 umask 077
 target="$1"
 identifier="$2"
-signing_dir="${DICTATION_SIGNING_DIR:-$HOME/.config/dictation/signing}"
-identity_name="Dictation Local Signing"
+signing_dir="${HERMES_ISLAND_SIGNING_DIR:-$HOME/.config/hermes-island/signing}"
+identity_name="Hermes Island Local Signing"
 # The system LibreSSL writes a PKCS#12 file that `security import` reads. A Homebrew OpenSSL earlier in PATH
 # defaults to an encryption the keychain may reject.
 openssl=/usr/bin/openssl
@@ -51,7 +51,7 @@ if [[ ${#searchlist[@]} -eq 0 ]]; then
     exit 1
 fi
 keychain_dir="$(mktemp -d)"
-keychain="$keychain_dir/dictation-signing.keychain-db"
+keychain="$keychain_dir/hermes-island-signing.keychain-db"
 keychain_pass="$("$openssl" rand -hex 16)"
 cleanup() {
     security delete-keychain "$keychain" 2>/dev/null || true

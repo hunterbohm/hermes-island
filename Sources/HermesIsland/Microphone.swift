@@ -18,7 +18,7 @@ import Synchronization
     /// Replaced devices, kept so freeing one never races AVFAudio's callbacks once its stuck call returns.
     private var stuck: [InputDevice] = []
     private var startedAt = Instant.now
-    private let log = Logger(subsystem: "com.hunterbohm.hermesisland", category: "microphone")
+    private let log = Logger(subsystem: "dev.hermes-island.app", category: "microphone")
     /// A start that failed after `start(from:)` returned.
     var onFailure: ((any Error) -> Void)?
     /// Where this capture records from, when it starts and again when a device change restarts it.
@@ -44,7 +44,7 @@ import Synchronization
     }
 
     /// Posted when the user allows the microphone, so the engine can be readied before the first dictation.
-    nonisolated static let accessGranted = Notification.Name("com.hunterbohm.hermesisland.microphoneAccessGranted")
+    nonisolated static let accessGranted = Notification.Name("dev.hermes-island.app.microphoneAccessGranted")
 
     /// Asks at launch, so the first dictation is not spent on the permission prompt.
     static func requestAccessIfNeeded() {
@@ -177,7 +177,7 @@ private final class InputDevice: @unchecked Sendable {
         }
     }
 
-    private let queue = DispatchQueue(label: "com.hunterbohm.hermesisland.microphone", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "dev.hermes-island.app.microphone", qos: .userInteractive)
     private let sink: SampleSink
     private var engine = AVAudioEngine()
     /// Engines replaced, never freed; see `replaceEngine`.

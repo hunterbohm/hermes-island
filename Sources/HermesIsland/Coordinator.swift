@@ -5,7 +5,7 @@ import os
 /// Wires the owners together: the key that starts a talk, the talk, the island that shows it, the cards beside it,
 /// and the call backs an agent rings in with.
 @MainActor final class Coordinator {
-    private let log = Logger(subsystem: "com.hunterbohm.hermesisland", category: "island")
+    private let log = Logger(subsystem: "dev.hermes-island.app", category: "island")
 
     let preferences = Preferences()
     let agents = AgentPool(threadsAt: TalkThreadStore.defaultURL)

@@ -7,7 +7,7 @@ import os
 @MainActor final class TalkThreadStore {
     private(set) var threads: TalkThreads
     private let url: URL?
-    private let log = Logger(subsystem: "com.hunterbohm.hermesisland", category: "agent")
+    private let log = Logger(subsystem: "dev.hermes-island.app", category: "agent")
 
     init(url: URL? = nil) {
         self.url = url

@@ -14,7 +14,7 @@ import os
         if let stored = SettingsStore.read(defaults) {
             current = stored
         } else {
-            current = SettingsStore.isReal ? (Migration.fromLipService() ?? .firstRun) : .firstRun
+            current = SettingsStore.isReal ? (Migration.fromEarlierID() ?? Migration.fromLipService() ?? .firstRun) : .firstRun
             SettingsStore.write(current, to: defaults)
         }
         AudioDevices.automaticOrder = current.automaticOrder
@@ -64,12 +64,23 @@ enum SettingsStore {
     }
 }
 
-/// The first launch takes over what a Lip Service user already set up for live talk: the agents, the talk's agent and
-/// voice, the microphone and the cues, and the session each agent's last talk ended in. Lip Service's own settings and
-/// files are only read, never changed.
+/// The first launch takes over settings from before: those of an earlier Hermes Island bundle id, or else what a Lip
+/// Service user set up for live talk (the agents, the talk's agent and voice, the microphone and the cues, and the session
+/// each agent's last talk ended in). The old settings and files are only read, never changed.
 @MainActor enum Migration {
     static let lipServiceDomain = "com.hunterbohm.dictation"
-    private static let log = Logger(subsystem: "com.hunterbohm.hermesisland", category: "settings")
+    /// The bundle id the first builds of Hermes Island had. Its settings are copied once, and only read.
+    static let earlierDomain = "com.hunterbohm.hermesisland"
+    private static let log = Logger(subsystem: "dev.hermes-island.app", category: "settings")
+
+    /// The talk threads file needs no copy: the support folder is named for the app, not its id.
+    static func fromEarlierID() -> IslandSettings? {
+        guard let data = UserDefaults(suiteName: earlierDomain)?.data(forKey: SettingsStore.settingsKey),
+              let settings = try? JSONDecoder().decode(IslandSettings.self, from: data)
+        else { return nil }
+        log.info("took over the settings saved under \(earlierDomain, privacy: .public)")
+        return settings
+    }
 
     static func fromLipService() -> IslandSettings? {
         guard let data = UserDefaults(suiteName: lipServiceDomain)?.data(forKey: "settings"),

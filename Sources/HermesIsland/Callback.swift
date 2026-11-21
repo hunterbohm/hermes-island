@@ -8,8 +8,8 @@ import Foundation
 /// id, and a distributed notification carrying only the id tells the app to read it. The app answers with status
 /// notifications for that id. The result never travels in a notification, which any process of this user can see.
 enum CallChannel {
-    static let request = Notification.Name("com.hunterbohm.hermesisland.call")
-    static let status = Notification.Name("com.hunterbohm.hermesisland.call.status")
+    static let request = Notification.Name("dev.hermes-island.app.call")
+    static let status = Notification.Name("dev.hermes-island.app.call.status")
     static let folder = SupportFolder.url.appending(path: "calls", directoryHint: .isDirectory)
 
     static func file(for id: String) -> URL? {

@@ -37,7 +37,7 @@ actor ACPClient {
     private(set) var exited = false
     /// What the agent said it can do at `initialize`.
     private(set) var abilities = AgentAbilities()
-    private static let log = Logger(subsystem: "com.hunterbohm.hermesisland", category: "agent")
+    private static let log = Logger(subsystem: "dev.hermes-island.app", category: "agent")
 
     /// Starts the process. Nothing is sent until `initialize`.
     init(name: String, shellCommand: String, cwd: URL) throws {
@@ -258,7 +258,7 @@ actor ACPClient {
     private var startTokens: [String: UUID] = [:]
     private var reaper: Task<Void, Never>?
     let workingDirectory: URL
-    private let log = Logger(subsystem: "com.hunterbohm.hermesisland", category: "agent")
+    private let log = Logger(subsystem: "dev.hermes-island.app", category: "agent")
 
     /// `threadsAt` is the file that remembers each agent's last talk; with none, only for as long as the process runs.
     init(idleLimit: Double = 30 * 60, threadsAt: URL? = nil) {

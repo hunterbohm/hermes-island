@@ -125,7 +125,7 @@ enum TalkEnd: Equatable {
     private let voice: any VoiceProvider
     private let input: any TalkInput
     private let speaker: any TalkSpeaker
-    private let log = Logger(subsystem: "com.hunterbohm.hermesisland", category: "talk")
+    private let log = Logger(subsystem: "dev.hermes-island.app", category: "talk")
 
     var onBar: ((TalkBar) -> Void)?
     var onCard: ((TalkCardEvent) -> Void)?

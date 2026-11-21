@@ -11,13 +11,13 @@ import ServiceManagement
 /// by hand while the agent is on, the new copy asks launchd for its own copy and ends, and when the user turns the
 /// agent off in launchd's copy, a new copy starts first. A lock lets one copy run at a time, whoever started it.
 enum LaunchAgent {
-    static let label = "com.hunterbohm.hermesisland.agent"
+    static let label = "dev.hermes-island.app.agent"
     static var service: SMAppService { .agent(plistName: "\(label).plist") }
 
     /// launchd puts a job's label in its environment. LaunchServices, a shell and an ssh session do not.
     static let startedByLaunchd = ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] == label
 
-    private static let log = Logger(subsystem: "com.hunterbohm.hermesisland", category: "login")
+    private static let log = Logger(subsystem: "dev.hermes-island.app", category: "login")
 
     /// How long a copy waits for the copy that is ending to let go of the lock.
     private static let handOverWait = 3.0
