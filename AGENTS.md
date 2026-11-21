@@ -17,3 +17,5 @@ A macOS menu bar app: double-tap Left Control to talk out loud with an ACP agent
 	python3 -m unittest discover -s hermes-plugin/tests
 
 Installed copy: `/Applications/Hermes Island.app`, started at login by the launch agent `dev.hermes-island.app.agent`. Logs: `log show --predicate 'subsystem == "dev.hermes-island.app"'`.
+
+To put a new build in /Applications, use `hermes island build --install` or `install()` in `hermes-plugin/island.py`, not a plain copy: macOS 26's login item record pins the build it was registered with, and a plain copy leaves launchd refusing the new one (`OS_REASON_CODESIGNING`, launch constraint), so the app would not start at the next login.
