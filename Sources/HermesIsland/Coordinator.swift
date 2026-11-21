@@ -115,7 +115,7 @@ import os
         startTalk(with: agent)
     }
 
-    private func startTalk(with agent: AgentConnection, opening: TalkOpening? = nil) {
+    private func startTalk(with agent: AgentConnection, opening: String? = nil) {
         let settings = preferences.current
         let talk = Talk(agent: agent, pool: agents, engine: engine, voice: Voices.provider(for: settings.liveTalk.voice),
                         input: MicTalkInput(microphone, choice: settings.microphone), speaker: SpeakerOut(), opening: opening,
@@ -186,6 +186,9 @@ import os
         log.info("call back from \(request.from, privacy: .public)")
         let call = RingingCall(request: request, agent: agent)
         ringing = call
+        // Nothing is said before the agent's first words, so the agent and the voice get ready while the island rings.
+        agents.warmUp(agent)
+        Task { try? await Voices.provider(for: settings.liveTalk.voice).prepare() }
         if request.ringSeconds <= 0 { return answerCall() }
         CallChannel.post(CallbackUpdate(id: id, status: .ringing))
         call.ring = Task { [unowned self, sounds] in
@@ -210,9 +213,8 @@ import os
         let request = call.request
         CallChannel.post(CallbackUpdate(id: request.id, status: .answered))
         callInTalk = request.id
-        startTalk(with: call.agent, opening: TalkOpening(
-            greeting: CallbackPrompt.greeting(from: request.from, about: request.about),
-            prompt: CallbackPrompt.opening(from: request.from, about: request.about, result: request.result)))
+        startTalk(with: call.agent,
+                  opening: CallbackPrompt.opening(from: request.from, about: request.about, result: request.result))
     }
 
     /// Decline on the island, or the ring ran out.
@@ -222,6 +224,8 @@ import os
         ringing = nil
         log.info("call back \(status.rawValue, privacy: .public)")
         CallChannel.post(CallbackUpdate(id: call.request.id, status: status))
+        // The voice loaded while it rang goes after its usual wait, as after a talk.
+        Task { await OnMacVoices.shared.idle() }
         render()
     }
 

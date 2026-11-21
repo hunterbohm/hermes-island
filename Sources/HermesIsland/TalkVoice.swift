@@ -306,6 +306,8 @@ struct ServerVoiceProvider: VoiceProvider {
     private var generation = 0
     private(set) var recorded: [Float] = []
     private(set) var recordedRate = 24_000.0
+    /// When the first clip would have started playing.
+    private(set) var firstPlay: Instant?
 
     var voice: VoiceTap? { nil }
     var isPlaying: Bool { !queue.isEmpty }
@@ -314,6 +316,7 @@ struct ServerVoiceProvider: VoiceProvider {
 
     func play(_ clip: VoiceClip, caption: String) {
         queue.append((clip, caption))
+        if firstPlay == nil { firstPlay = .now }
         recordedRate = clip.sampleRate
         recorded += clip.samples + [Float](repeating: 0, count: Int(clip.sampleRate * 0.15))
         if queue.count == 1 { begin() }

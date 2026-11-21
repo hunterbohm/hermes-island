@@ -404,6 +404,12 @@ actor ACPClient {
         onCatalog?(id)
     }
 
+    /// Starts the agent, if it isn't running, so a talk about to begin, such as a call back that is ringing, opens its
+    /// session sooner. A failure is left for the talk to report.
+    func warmUp(_ agent: AgentConnection) {
+        Task { _ = try? await client(for: agent) }
+    }
+
     /// The running client, or a new one when there is none, it died, or its command changed.
     private func client(for agent: AgentConnection) async throws -> ACPClient {
         let command = agent.shellCommand
