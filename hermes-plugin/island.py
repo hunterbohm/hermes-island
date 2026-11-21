@@ -11,6 +11,7 @@ import os
 import platform
 import shlex
 import shutil
+import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 APP = "/Applications/Hermes Island.app/Contents/MacOS/HermesIsland"
+AGENT = "dev.hermes-island.app.agent"
 REPO = "https://github.com/hunterbohm/hermes-island"
 DEFAULT_RING = 30
 LONGEST_RING = 120
@@ -186,15 +188,21 @@ def install(built: Path, target: Path) -> tuple[int, str]:
 
     macOS's login item record pins the build it was registered with, and launchd refuses a different one with a
     launch constraint error. Measured on macOS 26: the record takes the new build when that build is opened while
-    the login item is on, and the login item then starts it after one more turn off and on with LaunchServices
-    reading the bundle again in between."""
+    the login item is on and hands over to it, and the login item then starts it after one more turn off and on
+    with LaunchServices reading the bundle again in between."""
     binary = str(target / "Contents/MacOS/HermesIsland")
 
     def app(*arguments: str) -> str:
         return subprocess.run([binary, *arguments], capture_output=True, text=True, check=False, timeout=30).stdout
 
-    def running() -> bool:
-        return subprocess.run(["/usr/bin/pgrep", "-x", "HermesIsland"], capture_output=True, check=False).returncode == 0
+    def copies() -> list[int]:
+        found = subprocess.run(["/usr/bin/pgrep", "-x", "HermesIsland"], capture_output=True, text=True, check=False)
+        return [int(pid) for pid in found.stdout.split()]
+
+    def launchd_runs_it() -> bool:
+        job = subprocess.run(["/bin/launchctl", "print", f"gui/{os.getuid()}/{AGENT}"], capture_output=True, text=True,
+                             check=False)
+        return any(line.strip().startswith("pid = ") for line in job.stdout.splitlines())
 
     def wait_until(check: Callable[[], bool], seconds: float) -> bool:
         for _ in range(int(seconds * 2)):
@@ -224,15 +232,22 @@ def install(built: Path, target: Path) -> tuple[int, str]:
         subprocess.run(["/usr/bin/open", str(target)], check=False, timeout=30)
         return 0, f"Installed {target}. Allow Accessibility and the microphone when macOS asks."
     app("--open-at-login", "on")
-    subprocess.run(["/usr/bin/open", str(target)], check=False, timeout=30)
-    time.sleep(5)
+    for _ in range(3):
+        subprocess.run(["/usr/bin/open", str(target)], check=False, timeout=30)
+        time.sleep(5)
+        stayed = copies()
+        if not stayed:
+            break  # it handed over to the login item, which is the step that matters
+        for pid in stayed:  # the copy just opened, which ran by itself instead
+            os.kill(pid, signal.SIGTERM)
+        wait_until(lambda: not copies(), 5)
     app("--open-at-login", "off")
     lsregister("-u")
     time.sleep(2)
     lsregister("-f", "-R")
     time.sleep(2)
     app("--open-at-login", "on")
-    if not wait_until(running, 10):
+    if not wait_until(launchd_runs_it, 10):
         subprocess.run(["/usr/bin/open", str(target)], check=False, timeout=30)
         return 1, (f"Installed {target}, but the login item would not start it, so it was opened by hand. Turn "
                    "Open at Login off and on in its menu.")
