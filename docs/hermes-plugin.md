@@ -1,6 +1,6 @@
 # Plan: Hermes Island as a Hermes plugin
 
-Status: plan only. Nothing here is built or submitted. Making the repo public and opening a catalog PR are the owner's to do.
+Status: the plugin is built in `hermes-plugin/` and passes `hermes plugins validate` and `hermes plugins doctor --ci`. Nothing is submitted. Making the repo public and opening the catalog PR are the owner's to do.
 
 ## What Hermes already gives us
 
@@ -18,8 +18,8 @@ A general plugin (`plugin.yaml` + `register(ctx)`) in `hermes-plugin/` of this r
 
 What it registers:
 
-1. **Tool `island_call_back`** (`about`, `result`, optional `ring_seconds`). Runs `HermesIsland call --about … --result-file …` and returns the final status (`delivered`, `declined`, `missed`, `busy`, `hung-up`, `failed`) and its exit code, so the agent can text instead when the user is busy. On macOS it runs the app's binary directly. When Hermes runs on another machine, it runs it through a transport set in config (`island.transport: "ssh -o BatchMode=yes my-mac"`), the way `call-me-back` does today.
-2. **CLI `hermes island`**: `status` (app found, running, Accessibility and microphone state, which agent it talks to), `build` (runs `scripts/fetch-deps.sh`, `scripts/test.sh` and `scripts/build-app.sh` from the plugin's own checkout, then offers to copy the app to /Applications), and `setup` (writes the island's agent entry for this Hermes: `hermes acp` here, or `ssh HOST hermes acp`).
+1. **Tool `island_call_back`** (`about`, `result`, optional `ring_seconds`). Runs `HermesIsland call --about …` with the result on stdin and returns the final status (`delivered`, `declined`, `missed`, `busy`, `hung-up`, `failed`), its exit code and the next step, so the agent can text instead when the user is busy. On macOS it runs the app's binary directly. When Hermes runs on another machine, it runs it through the `transport` setting (`plugins.entries.hermes-island.settings.transport: "ssh -o BatchMode=yes my-mac"`).
+2. **CLI `hermes island`**: `status` (where the island is, which agent it talks to, busy now, open at login, running), `build` (runs `scripts/fetch-deps.sh`, `scripts/test.sh` and `scripts/build-app.sh` from a source checkout, then offers to copy the app to /Applications), and `setup` (runs `HermesIsland agent --hermes [--host HOST]`, so the app writes its own settings). A catalog install is a sparse checkout of `hermes-plugin/` alone, so `build` takes `--source DIR` there.
 
 No hooks, no middleware, no env vars, no core overrides.
 
@@ -33,9 +33,11 @@ No hooks, no middleware, no env vars, no core overrides.
 
 ## Before submitting
 
-1. The owner makes the repo public. Check the history for anything private first (it starts clean, from a fresh `git init`).
-2. Replace the Lip Service icon and pick a bundle id that is not personal (`dev.hermes-island.app` or similar), with a settings migration from `com.hunterbohm.hermesisland`.
-3. A Developer ID signature and notarization for people who install the release instead of building. The self-signed certificate works only on the Mac that built it.
-4. Port `call-me-back`'s ring step to the plugin tool, then point `call-me-back` at it.
-5. `hermes plugins validate hermes-plugin/` and `hermes plugins doctor` pass at the commit to pin.
-6. A short screen recording of a talk for the catalog entry's `image`/docs.
+Done: its own icon; the bundle id `dev.hermes-island.app`, with a one-time settings copy from `com.hunterbohm.hermesisland`; personal names, hosts and handles out of code, tests and docs; the plugin, passing validate and doctor.
+
+Left:
+
+1. The owner makes the repo public, after one more look at the history.
+2. A Developer ID signature and notarization for people who install a release instead of building. The self-signed certificate works only on the Mac that built it.
+3. A short screen recording of a talk for the README and the catalog entry's `image`.
+4. The catalog entry (`plugin-catalog/hermes-island.yaml`: `repo`, the 40-character `sha`, `subdir: hermes-plugin`, `platforms`), opened as a PR by the owner.

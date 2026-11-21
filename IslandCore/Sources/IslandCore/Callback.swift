@@ -1,6 +1,6 @@
 import Foundation
 
-/// A call back from an agent: a background job finished, and the agent wants to tell you the result out loud. `Dictation
+/// A call back from an agent: a background job finished, and the agent wants to tell you the result out loud. `HermesIsland
 /// call` hands one to the running app, which rings on the island. Answer it and a live talk starts that says the result
 /// first; decline it, let it ring out, or be busy, and the caller hears why so it can text you instead.
 public struct CallbackRequest: Equatable, Codable, Sendable {

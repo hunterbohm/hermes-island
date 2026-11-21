@@ -1,0 +1,24 @@
+name: hermes-island
+version: 0.1.0
+manifest_version: 2
+api_version: 1
+description: "Hermes Island for Hermes: the island_call_back tool rings the voice island on your Mac when a job is done and says the result when you answer, and `hermes island status|build|setup` builds the app and points its talks at this Hermes. macOS app; Hermes can run on another machine over ssh."
+author: Hunter Bohm
+license: MIT
+homepage: https://github.com/hunterbohm/hermes-island
+tags: [voice, macos, call-back]
+requires_hermes: ">=0.22"
+provides_tools:
+  - island_call_back
+provides_hooks: []
+provides_middleware: []
+requires_env: []
+config_schema:
+  transport:
+    type: str
+    default: ""
+    description: "How to reach the Mac that runs the island when Hermes runs elsewhere: a command that takes the remote command last, such as `ssh -o BatchMode=yes my-mac`. Empty runs the app on this Mac."
+  app_path:
+    type: str
+    default: ""
+    description: "The HermesIsland binary. Empty means /Applications/Hermes Island.app/Contents/MacOS/HermesIsland."
