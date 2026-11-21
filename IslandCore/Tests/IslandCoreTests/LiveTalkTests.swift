@@ -721,7 +721,9 @@ import Testing
         #expect(OnMacVoice.preston.title == "Preston (American, Phonon)")
         #expect(OnMacVoice(model: .phonon, voice: "en_gb_Hugh").title == "Hugh (British, Phonon)")
         #expect(OnMacVoice.offered.first == .standard)
-        #expect(OnMacVoice.offered.contains(.michael))
+        #expect(!OnMacVoice.offered.contains(.michael))
+        #expect(OnMacVoice.michael.playable == .standard)
+        #expect(OnMacVoice(model: .phonon, voice: "en_gb_Hugh").playable.voice == "en_gb_Hugh")
     }
 
     @Test func theOfferedPhononVoicesAreTheOnesPinned() {

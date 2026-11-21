@@ -62,7 +62,7 @@ An agent entry looks like this. `remoteHost` runs the command over SSH on that h
 ## Privacy
 
 - Your speech becomes text on your Mac. Audio stays in memory and is never written to disk or sent anywhere. The agent gets your words as text.
-- The agent's replies are spoken by a voice made on your Mac (Phonon or Kokoro), unless you set a voice server, which then gets the replies as text.
+- The agent's replies are spoken by a voice made on your Mac (Phonon), unless you set a voice server, which then gets the replies as text.
 - The app goes online by itself only to download the speech model and the voice from huggingface.co on first use, pinned to commits and checked against SHA-256 hashes built into the app. It has no account, no usage count and no update check.
 - To see Left Control and ⌃⌥M, the app watches the keyboard through Accessibility. It reacts to those two keys only and does not record, store or send any key.
 

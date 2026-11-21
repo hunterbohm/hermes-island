@@ -23,7 +23,7 @@ protocol VoiceProvider: Sendable {
 enum Voices {
     static func provider(for choice: TalkVoiceChoice) -> any VoiceProvider {
         switch choice {
-        case .onMac(let voice): OnMacVoiceProvider(voice: voice)
+        case .onMac(let voice): OnMacVoiceProvider(voice: voice.playable)
         case .server(let url, let voice): ServerVoiceProvider(base: url, voice: voice)
         }
     }
@@ -43,34 +43,24 @@ struct OnMacVoiceProvider: VoiceProvider {
 
 /// A loaded voice model.
 enum OnMacVoiceModel: Sendable {
-    case kokoro(KokoroAneManager)
     case phonon(PocketTtsSmallManager)
 
     func speak(_ text: String, voice: String) async throws -> VoiceClip {
         switch self {
-        case .kokoro(let manager):
-            let result = try await manager.synthesizeDetailed(text: text, voice: voice)
-            return VoiceClip(samples: result.samples, sampleRate: Double(result.sampleRate))
         case .phonon(let manager):
             let samples = try await manager.synthesizeSamples(text: text, voice: voice)
             return VoiceClip(samples: samples, sampleRate: Double(PocketTtsConstants.audioSampleRate))
         }
     }
 
-    func cleanup() async {
-        if case .kokoro(let manager) = self { await manager.cleanup() }
-    }
-
     /// Loads `voice`, and says a short line through it, because the first line through a freshly loaded chain is slow.
     /// Phonon's pack is pinned like the speech models: downloaded only from the pinned commit, only the pinned files,
-    /// and checked file by file before Core ML reads it. Kokoro's files are not pinned.
+    /// and checked file by file before Core ML reads it. Kokoro never loads: its files are not pinned (see `playable`).
     static func load(_ voice: OnMacVoice) async throws -> OnMacVoiceModel {
         let model: OnMacVoiceModel
         switch voice.model {
         case .kokoro:
-            let manager = KokoroAneManager(variant: .english, defaultVoice: voice.voice)
-            try await manager.initialize(preloadVoices: [voice.voice])
-            model = .kokoro(manager)
+            throw IslandError("Kokoro voices are off until their download is pinned. Pick a Phonon voice.")
         case .phonon:
             let pack = try await ModelStore(directory: try ModelStore.voiceDirectory()).phononPack()
             let manager = PocketTtsSmallManager(model: .phonon31m, defaultVoice: voice.voice)
@@ -109,7 +99,6 @@ actor OnMacVoices {
         do {
             let model = try await task.value
             if loading?.voice == voice { loading = nil }
-            if let old = loaded, old.voice != voice { await old.model.cleanup() }
             loaded = (voice, model)
             return model
         } catch {
@@ -132,7 +121,6 @@ actor OnMacVoices {
         release = nil
         guard let loaded else { return }
         self.loaded = nil
-        await loaded.model.cleanup()
         log.info("voice \(loaded.voice.id, privacy: .public) unloaded")
     }
 }

@@ -79,7 +79,7 @@ enum Mode {
                     case "--host": options.remoteHost = try Self.value(of: argument, from: &rest)
                     case "--voice":
                         let parts = try Self.value(of: argument, from: &rest).split(separator: ":", maxSplits: 1).map(String.init)
-                        guard parts.count == 2, let model = OnMacVoice.Model(rawValue: parts[0]) else { throw IslandError("--voice takes MODEL:VOICE, such as phonon:en_us_Preston or kokoro:am_michael") }
+                        guard parts.count == 2, let model = OnMacVoice.Model(rawValue: parts[0]) else { throw IslandError("--voice takes MODEL:VOICE, such as phonon:en_us_Preston") }
                         options.voice = .onMac(OnMacVoice(model: model, voice: parts[1]))
                     case "--voice-server": server = try Self.value(of: argument, from: &rest)
                     case "--voice-name": serverVoice = try Self.value(of: argument, from: &rest)

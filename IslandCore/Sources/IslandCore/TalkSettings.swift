@@ -27,12 +27,12 @@ public struct OnMacVoice: Equatable, Hashable, Codable, Sendable, Identifiable {
     public static let phononVoices: [OnMacVoice] = ["en_us_Preston", "en_us_Easton", "en_us_Miles", "en_us_Harper", "en_us_Zoey",
                                                      "en_gb_Hugh", "en_gb_Freya"].map { OnMacVoice(model: .phonon, voice: $0) }
 
-    /// The voices the settings offer. Any other Kokoro voice works too, set through `setup apply` or by hand.
-    public static let offered: [OnMacVoice] = phononVoices + [
-        michael, OnMacVoice(model: .kokoro, voice: "am_adam"), OnMacVoice(model: .kokoro, voice: "am_eric"),
-        OnMacVoice(model: .kokoro, voice: "af_heart"), OnMacVoice(model: .kokoro, voice: "af_bella"),
-        OnMacVoice(model: .kokoro, voice: "bm_george"), OnMacVoice(model: .kokoro, voice: "bf_emma"),
-    ]
+    /// The voices the settings offer: only Phonon's, whose pack is pinned and checked.
+    public static let offered: [OnMacVoice] = phononVoices
+
+    /// The voice a talk speaks with. FluidAudio downloads Kokoro's files from its main branch, unchecked, so a saved
+    /// Kokoro voice (from Lip Service or set by hand) speaks with the default voice until Kokoro is pinned too.
+    public var playable: OnMacVoice { model == .phonon ? self : .standard }
 
     /// "Preston (American, Phonon)", "Michael (American, Kokoro)".
     public var title: String {
