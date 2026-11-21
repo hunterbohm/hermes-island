@@ -1,0 +1,50 @@
+name: Bug
+description: Something in Hermes Island or its Hermes plugin does not work.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: app
+    attributes:
+      label: Hermes Island version
+      description: 'Menu bar item > About, or `defaults read "/Applications/Hermes Island.app/Contents/Info" CFBundleVersion`'
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      description: '`sw_vers -productVersion`'
+    validations:
+      required: true
+  - type: input
+    id: hermes
+    attributes:
+      label: Hermes version
+      description: '`hermes --version`, on the machine Hermes runs on'
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where Hermes runs
+      options:
+        - On this Mac
+        - On another machine, over ssh
+        - Another ACP agent, not Hermes
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Run this right after it goes wrong and paste the output. Read it first: it can hold what you said and what the agent answered.
+        `log show --last 10m --predicate 'subsystem == "dev.hermes-island.app"'`
+      render: text

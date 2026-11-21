@@ -5,7 +5,7 @@ Rings [Hermes Island](../README.md) when a job is done, and sets the app up from
 - **Tool `island_call_back`** (`about`, `result`, optional `ring_seconds`). The island rings; when you answer, the agent says the result. It returns `delivered`, `declined`, `missed`, `hung-up`, `busy` or `failed`, so the agent can text you instead.
 - **`hermes island status`** shows where the island is, who its talks go to, whether you are busy, and whether it runs.
 - **`hermes island setup [--host HOST]`** points the island's talks at Hermes: `hermes acp` on the Mac, or over ssh on HOST.
-- **`hermes island build [--source DIR] [--install]`** builds the app from a source checkout and offers to copy it to /Applications. The plugin downloads nothing.
+- **`hermes island build [--source DIR] [--install]`** builds the app and offers to copy it to /Applications. It builds `--source`, else the repository this folder sits in, else it clones the app's repository from GitHub at the exact commit Hermes installed this plugin from (into `~/Library/Caches/dev.hermes-island.app/source`), so the app matches the plugin. The build also clones FluidAudio at a pinned tag.
 - Skill `hermes-island:talk-island`: how to answer in a spoken talk, and the call back steps.
 
 When Hermes runs on another machine, set the transport, a command that takes the remote command last:

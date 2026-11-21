@@ -87,12 +87,23 @@ def register(ctx) -> None:
 
 
 def build(source: str | None, install: bool) -> int:
-    """Builds the app from a source checkout. The plugin never downloads code: with no checkout it says how to get
-    the one that matches this plugin."""
-    root = Path(source).expanduser() if source else island.source_checkout(Path(__file__).parent)
-    if root is None or not (root / "scripts" / "build-app.sh").is_file():
-        print("No source checkout of Hermes Island found. Clone it, check out the commit this plugin came from, then:")
-        print(f"  git clone {island.REPO} && hermes island build --source hermes-island")
+    """Builds the app from `source`, else the repository this plugin sits in, else the app's repository at the
+    commit Hermes installed this plugin from, so the app matches the reviewed plugin."""
+    here = Path(__file__).parent
+    root = Path(source).expanduser() if source else island.source_checkout(here)
+    if root is None and not source:
+        commit = island.installed_commit(here)
+        if commit is None:
+            print("No source checkout of Hermes Island found, and Hermes has no record of the commit this plugin "
+                  "came from. Clone it, check out that commit, then:")
+            print(f"  git clone {island.REPO} && hermes island build --source hermes-island")
+            return 1
+        root, message = island.fetch_source(commit, Path.home() / "Library/Caches/dev.hermes-island.app/source")
+        print(message)
+        if root is None:
+            return 1
+    if not (root / "scripts" / "build-app.sh").is_file():
+        print(f"{root} is not a checkout of Hermes Island.")
         return 1
     for step in island.build_steps(root):
         print("$ " + " ".join(step))

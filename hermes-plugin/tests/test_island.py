@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -87,6 +88,43 @@ class IslandTests(unittest.TestCase):
 
     def test_the_source_is_the_repository_around_the_plugin(self):
         self.assertEqual(island.source_checkout(HERE), HERE.parent)
+
+    def installed_as(self, record):
+        plugins = Path(self.folder.name) / "plugins"
+        (plugins / "hermes-island").mkdir(parents=True)
+        (plugins / ".install-metadata.json").write_text(json.dumps({"hermes-island": record}))
+        return plugins / "hermes-island"
+
+    def test_a_catalog_install_names_the_pinned_commit(self):
+        plugin = self.installed_as({"revision": "a" * 40, "catalog": {"name": "hermes-island", "sha": "B" * 40}})
+        self.assertEqual(island.installed_commit(plugin), "b" * 40)
+
+    def test_a_git_install_names_the_commit_it_checked_out(self):
+        self.assertEqual(island.installed_commit(self.installed_as({"revision": "c" * 40})), "c" * 40)
+
+    def test_a_copied_plugin_names_no_commit(self):
+        self.assertIsNone(island.installed_commit(HERE))
+        self.assertIsNone(island.installed_commit(self.installed_as({"revision": "main"})))
+
+    def test_the_source_is_fetched_at_exactly_the_commit(self):
+        repo = Path(self.folder.name) / "repo"
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        (repo / "scripts").mkdir()
+        (repo / "scripts" / "build-app.sh").write_text("first\n")
+        subprocess.run(git + ["add", "."], check=True)
+        subprocess.run(git + ["commit", "-qm", "one"], check=True)
+        first = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        (repo / "scripts" / "build-app.sh").write_text("second\n")
+        subprocess.run(git + ["commit", "-qam", "two"], check=True)
+        cache = Path(self.folder.name) / "cache"
+        with mock.patch.object(island, "REPO", repo.as_uri()):
+            root, _ = island.fetch_source(first, cache)
+            self.assertEqual((root / "scripts" / "build-app.sh").read_text(), "first\n")
+            self.assertEqual(island.fetch_source(first, cache)[0], root)
+            missing, message = island.fetch_source("d" * 40, cache)
+        self.assertIsNone(missing)
+        self.assertFalse((cache / ("d" * 40)).exists())
 
 
 if __name__ == "__main__":
