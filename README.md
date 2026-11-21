@@ -36,9 +36,9 @@ There is no signed release yet, so build it (below), then:
 On first launch macOS asks for two permissions:
 
 - **Accessibility**, to see the Left Control double tap and ⌃⌥M. Turn Hermes Island on in System Settings > Privacy & Security > Accessibility.
-- **Microphone**, asked at the first talk.
+- **Microphone**, asked at the same time. Talks need it; the island hears nothing until you start one.
 
-Open at Login is on by default; the menu bar item turns it off.
+Open at Login starts off; turn it on in the menu bar item.
 
 ## Set up Hermes
 
