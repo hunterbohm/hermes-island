@@ -224,6 +224,8 @@ import os
         ringing = nil
         log.info("call back \(status.rawValue, privacy: .public)")
         CallChannel.post(CallbackUpdate(id: call.request.id, status: status))
+        // The voice loaded while it rang goes after its usual wait, as after a talk.
+        Task { await OnMacVoices.shared.idle() }
         render()
     }
 
