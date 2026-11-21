@@ -45,7 +45,7 @@ grep -qF "static let label = \"$agent\"" "$root/Sources/HermesIsland/LaunchAgent
     exit 1
 }
 plutil -replace CFBundleVersion -string "$build_number" "$contents/Info.plist"
-for resource in talk-start.wav talk-end.wav AppIcon.icns; do
+for resource in talk-start.wav talk-end.wav AppIcon.icns Assets.car; do
     cp "$root/Resources/$resource" "$contents/Resources/$resource"
 done
 
