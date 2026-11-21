@@ -374,7 +374,7 @@ public enum ToolLine {
     private static let byProgram: [String: String] = [
         "t3-run": "Checking T3 Code", "t3": "Checking T3 Code", "gh": "Checking GitHub",
         "obsidian": "Checking your notes", "obsidian-cli": "Checking your notes", "stripe": "Checking Stripe",
-        "stripe-invoices": "Checking Stripe", "kb": "Thinking back", "curl": "Doing some reading", "ssh": "Running a few commands",
+        "curl": "Doing some reading", "ssh": "Running a few commands",
     ]
 
     /// What a step says when the one before it said the same, so a run of commands reads as progress, not a stutter.

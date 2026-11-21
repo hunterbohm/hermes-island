@@ -313,7 +313,7 @@ public enum TalkIsland {
                                      "pip3", "uv", "swift", "xcodebuild", "brew", "cd", "ls", "cat", "curl", "wget", "ssh",
                                      "scp", "make", "cargo", "go", "docker", "kubectl", "echo", "rm", "mv", "cp", "mkdir",
                                      "touch", "chmod", "sudo", "open", "ruby", "gem", "bundle", "rails", "gh", "hermes",
-                                     "t3-run", "kb", "launchctl", "defaults", "tail", "grep", "rg", "sed", "awk", "export"]
+                                     "t3-run", "launchctl", "defaults", "tail", "grep", "rg", "sed", "awk", "export"]
         let scripts = /(^|\s)(~|\.{0,2})\/?[\w.\/-]*\.(py|sh|js|mjs|ts|rb|swift|pl)(\s|$)/
         for line in text.split(whereSeparator: \.isNewline) {
             let first = line.split(separator: " ").first.map(String.init) ?? ""

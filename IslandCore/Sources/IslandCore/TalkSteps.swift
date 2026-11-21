@@ -135,7 +135,7 @@ extension ToolLine {
     /// A command's program and the app it drives.
     private static let appByProgram: [String: StepApp] = [
         "t3-run": .t3Code, "t3": .t3Code, "gh": .github, "hermes": .hermes, "call-me-back": .callBack, "obsidian": .obsidian,
-        "obsidian-cli": .obsidian, "stripe": .stripe, "stripe-invoices": .stripe,
+        "obsidian-cli": .obsidian, "stripe": .stripe,
     ]
 
     /// The app a tool call uses, read from the same title and kind as its line, so the island can show that app's icon.

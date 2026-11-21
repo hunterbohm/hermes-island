@@ -647,8 +647,8 @@ import Testing
         #expect(plain.hasPrefix("(Voice call through Hermes Island"))
         #expect(plain.hasSuffix(") what's on today"))
         let hermes = TalkPrompt.message("text me that", extra: AgentPreset.with(id: "hermes")!.talkNote)
-        // Sent through a quoted heredoc, so nothing in the text is run by the shell.
-        #expect(hermes.contains(#"hermes send -t telegram <<'EOF'"#))
+        // The task goes through a quoted heredoc, so nothing in it is run by the shell.
+        #expect(hermes.contains(#"hermes -z "$(cat <<'TASK'"#))
     }
 
     @Test func aTurnIsTimedFromTheEndOfSpeech() {
@@ -670,14 +670,10 @@ import Testing
             + #""draftOptions":[],"taskOptions":[],"destination":{"agentReply":{}}}"#
         let agent = try JSONDecoder().decode(AgentConnection.self, from: Data(old.utf8))
         #expect(agent.talkOptions == [.option(id: "model", value: "anthropic:claude-opus-5-5"), .option(id: "reasoning_effort", value: "low")])
-        #expect(agent.talkNote.contains("hermes send -t telegram"))
-        // It says how to call back without a skill, and a Hermes saved with the earlier note gets this one.
-        #expect(agent.talkNote.contains("call-me-back run --about"))
-        #expect(agent.talkNote.contains("don't load a skill"))
+        // It says how to call back, and a saved note of the user's own is kept as it is.
+        #expect(agent.talkNote == AgentPreset.hermesTalkNote)
+        #expect(agent.talkNote.contains("island_call_back"))
         var saved = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(agent)) as! [String: Any]
-        saved["talkNote"] = AgentPreset.formerTalkNotes["hermes"]!.first!
-        let reloaded = try! JSONDecoder().decode(AgentConnection.self, from: JSONSerialization.data(withJSONObject: saved))
-        #expect(reloaded.talkNote == AgentPreset.hermesTalkNote)
         saved["talkNote"] = "My own note."
         #expect(try! JSONDecoder().decode(AgentConnection.self, from: JSONSerialization.data(withJSONObject: saved)).talkNote == "My own note.")
         #expect(agent.remoteHost == "home-mac")
