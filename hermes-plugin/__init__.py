@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -104,17 +103,8 @@ def build(source: str | None, install: bool) -> int:
         answer = input(f"Copy {built} to /Applications? [y/N] ").strip().lower()
         install = answer in ("y", "yes")
     if install:
-        # Assembled beside the old copy and renamed into place: writing over a running app's binary kills it.
         target = Path("/Applications/Hermes Island.app")
-        fresh, aside = target.with_name(".Hermes Island.new.app"), target.with_name(".Hermes Island.old.app")
-        for leftover in (fresh, aside):
-            shutil.rmtree(leftover, ignore_errors=True)
-        done = subprocess.run(["/usr/bin/ditto", str(built), str(fresh)], check=False)
-        if done.returncode != 0:
-            return done.returncode
-        if target.exists():
-            target.rename(aside)
-        fresh.rename(target)
-        shutil.rmtree(aside, ignore_errors=True)
-        print(f"Installed {target}. Open it, then allow Accessibility and the microphone when asked.")
+        code, message = island.install(built, target)
+        print(message)
+        return code
     return 0

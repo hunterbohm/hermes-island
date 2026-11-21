@@ -10,6 +10,7 @@ import json
 import os
 import platform
 import shlex
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -173,3 +174,38 @@ def source_checkout(plugin_dir: Path) -> Optional[Path]:
 def build_steps(root: Path) -> list[list[str]]:
     scripts = root / "scripts"
     return [[str(scripts / "fetch-deps.sh")], [str(scripts / "test.sh")], [str(scripts / "build-app.sh")]]
+
+
+LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/"
+              "lsregister")
+
+
+def install(built: Path, target: Path) -> tuple[int, str]:
+    """Puts a new build in place of the installed app and starts it again. macOS's login item record pins the build
+    it was registered with, and refuses a different one, so the login item is turned off around the swap and back on
+    once LaunchServices has read the new bundle."""
+    binary = Path("Contents/MacOS/HermesIsland")
+    login = False
+    if (target / binary).is_file():
+        status = subprocess.run([str(target / binary), "--login-status"], capture_output=True, text=True, check=False,
+                                timeout=30)
+        login = "launch agent: enabled" in status.stdout
+        if login:
+            subprocess.run([str(target / binary), "--open-at-login", "off"], capture_output=True, check=False, timeout=30)
+    # Assembled beside the old copy and renamed into place: writing over a running app's binary kills it.
+    fresh, aside = target.with_name(".Hermes Island.new.app"), target.with_name(".Hermes Island.old.app")
+    for leftover in (fresh, aside):
+        shutil.rmtree(leftover, ignore_errors=True)
+    if subprocess.run(["/usr/bin/ditto", str(built), str(fresh)], check=False).returncode != 0:
+        return 1, f"Could not copy {built} to {fresh}."
+    if target.exists():
+        target.rename(aside)
+    fresh.rename(target)
+    shutil.rmtree(aside, ignore_errors=True)
+    subprocess.run([LSREGISTER, "-u", str(target)], capture_output=True, check=False, timeout=60)
+    subprocess.run([LSREGISTER, "-f", "-R", str(target)], capture_output=True, check=False, timeout=60)
+    if login:
+        subprocess.run([str(target / binary), "--open-at-login", "on"], capture_output=True, check=False, timeout=30)
+    else:
+        subprocess.run(["/usr/bin/open", str(target)], check=False, timeout=30)
+    return 0, f"Installed {target}. Allow Accessibility and the microphone when macOS asks."
