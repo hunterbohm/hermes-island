@@ -182,17 +182,33 @@ LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/Laun
 
 
 def install(built: Path, target: Path) -> tuple[int, str]:
-    """Puts a new build in place of the installed app and starts it again. macOS's login item record pins the build
-    it was registered with and refuses a different one. It takes the new build once that build has been opened, so
-    the login item is turned off around the swap, the new app is opened, and then the login item goes back on."""
-    binary = Path("Contents/MacOS/HermesIsland")
-    login = False
-    if (target / binary).is_file():
-        status = subprocess.run([str(target / binary), "--login-status"], capture_output=True, text=True, check=False,
-                                timeout=30)
-        login = "launch agent: enabled" in status.stdout
-        if login:
-            subprocess.run([str(target / binary), "--open-at-login", "off"], capture_output=True, check=False, timeout=30)
+    """Puts a new build in place of the installed app and starts it again.
+
+    macOS's login item record pins the build it was registered with, and launchd refuses a different one with a
+    launch constraint error. Measured on macOS 26: the record takes the new build when that build is opened while
+    the login item is on, and the login item then starts it after one more turn off and on with LaunchServices
+    reading the bundle again in between."""
+    binary = str(target / "Contents/MacOS/HermesIsland")
+
+    def app(*arguments: str) -> str:
+        return subprocess.run([binary, *arguments], capture_output=True, text=True, check=False, timeout=30).stdout
+
+    def running() -> bool:
+        return subprocess.run(["/usr/bin/pgrep", "-x", "HermesIsland"], capture_output=True, check=False).returncode == 0
+
+    def wait_until(check: Callable[[], bool], seconds: float) -> bool:
+        for _ in range(int(seconds * 2)):
+            if check():
+                return True
+            time.sleep(0.5)
+        return check()
+
+    def lsregister(*arguments: str) -> None:
+        subprocess.run([LSREGISTER, *arguments, str(target)], capture_output=True, check=False, timeout=60)
+
+    login = Path(binary).is_file() and "launch agent: enabled" in app("--login-status")
+    if login:
+        app("--open-at-login", "off")  # ends the copy launchd started
     # Assembled beside the old copy and renamed into place: writing over a running app's binary kills it.
     fresh, aside = target.with_name(".Hermes Island.new.app"), target.with_name(".Hermes Island.old.app")
     for leftover in (fresh, aside):
@@ -203,16 +219,21 @@ def install(built: Path, target: Path) -> tuple[int, str]:
         target.rename(aside)
     fresh.rename(target)
     shutil.rmtree(aside, ignore_errors=True)
-    subprocess.run([LSREGISTER, "-u", str(target)], capture_output=True, check=False, timeout=60)
-    subprocess.run([LSREGISTER, "-f", "-R", str(target)], capture_output=True, check=False, timeout=60)
+    lsregister("-f", "-R")
+    if not login:
+        subprocess.run(["/usr/bin/open", str(target)], check=False, timeout=30)
+        return 0, f"Installed {target}. Allow Accessibility and the microphone when macOS asks."
+    app("--open-at-login", "on")
     subprocess.run(["/usr/bin/open", str(target)], check=False, timeout=30)
-    for _ in range(20):
-        if subprocess.run(["/usr/bin/pgrep", "-x", "HermesIsland"], capture_output=True, check=False).returncode == 0:
-            break
-        time.sleep(0.5)
-    # The opened copy decides at launch whether to hand over to the login item, and macOS takes a few seconds to
-    # note the new build, so the login item goes back on only after that.
-    time.sleep(4)
-    if login:
-        subprocess.run([str(target / binary), "--open-at-login", "on"], capture_output=True, check=False, timeout=30)
-    return 0, f"Installed {target}. Allow Accessibility and the microphone when macOS asks."
+    time.sleep(5)
+    app("--open-at-login", "off")
+    lsregister("-u")
+    time.sleep(2)
+    lsregister("-f", "-R")
+    time.sleep(2)
+    app("--open-at-login", "on")
+    if not wait_until(running, 10):
+        subprocess.run(["/usr/bin/open", str(target)], check=False, timeout=30)
+        return 1, (f"Installed {target}, but the login item would not start it, so it was opened by hand. Turn "
+                   "Open at Login off and on in its menu.")
+    return 0, f"Installed {target} and started it. Allow Accessibility and the microphone when macOS asks."
