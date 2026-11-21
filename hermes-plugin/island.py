@@ -12,6 +12,7 @@ import platform
 import shlex
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
@@ -182,8 +183,8 @@ LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/Laun
 
 def install(built: Path, target: Path) -> tuple[int, str]:
     """Puts a new build in place of the installed app and starts it again. macOS's login item record pins the build
-    it was registered with, and refuses a different one, so the login item is turned off around the swap and back on
-    once LaunchServices has read the new bundle."""
+    it was registered with and refuses a different one. It takes the new build once that build has been opened, so
+    the login item is turned off around the swap, the new app is opened, and then the login item goes back on."""
     binary = Path("Contents/MacOS/HermesIsland")
     login = False
     if (target / binary).is_file():
@@ -204,8 +205,11 @@ def install(built: Path, target: Path) -> tuple[int, str]:
     shutil.rmtree(aside, ignore_errors=True)
     subprocess.run([LSREGISTER, "-u", str(target)], capture_output=True, check=False, timeout=60)
     subprocess.run([LSREGISTER, "-f", "-R", str(target)], capture_output=True, check=False, timeout=60)
+    subprocess.run(["/usr/bin/open", str(target)], check=False, timeout=30)
+    for _ in range(20):
+        if subprocess.run(["/usr/bin/pgrep", "-x", "HermesIsland"], capture_output=True, check=False).returncode == 0:
+            break
+        time.sleep(0.5)
     if login:
         subprocess.run([str(target / binary), "--open-at-login", "on"], capture_output=True, check=False, timeout=30)
-    else:
-        subprocess.run(["/usr/bin/open", str(target)], check=False, timeout=30)
     return 0, f"Installed {target}. Allow Accessibility and the microphone when macOS asks."
