@@ -102,6 +102,7 @@ import IslandCore
     @objc private func startOver() {
         guard let agent = coordinator.preferences.current.talkAgent else { return }
         coordinator.agents.startOver(agent.id)
+        coordinator.agents.ready()
     }
 
     /// Writes the settings to a JSON file, opens it, and reads it back when it is saved.

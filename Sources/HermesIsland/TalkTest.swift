@@ -27,6 +27,9 @@ import Foundation
         var threadFile: URL?
         /// Start a new conversation first, as Start a new conversation does.
         var startOver = false
+        /// Get the agent ready before the talk starts, as the app does at launch, so the talk times a double tap on an app
+        /// that has been running.
+        var warm = false
     }
 
     static func run(_ options: Options) async -> Int32 {
@@ -57,6 +60,10 @@ import Foundation
 
         let input = ClipInput(clips: clips), speaker = SilentSpeaker(), pool = AgentPool(threadsAt: options.threadFile)
         if options.startOver { pool.startOver(agent.id) }
+        if options.warm {
+            pool.keepReady(agent)
+            await pool.whenReady()
+        }
         let opening = options.callBack.map { call in
             TalkOpening(greeting: CallbackPrompt.greeting(from: agent.name, about: call.about),
                         prompt: CallbackPrompt.opening(from: agent.name, about: call.about, result: call.result))
@@ -120,7 +127,7 @@ import Foundation
         }
         var summary: [String: JSONValue] = [
             "agent": .string(agent.name), "turns": .number(Double(turns)), "seconds": .number(((Instant.now - started) * 10).rounded() / 10),
-            "ended": .string(String(describing: reason)),
+            "ended": .string(String(describing: reason)), "connect": talk.connectClock.json,
         ]
         if let session = talk.sessionID { summary["session"] = .string(session) }
         print(String(decoding: JSONValue.object(summary).data(), as: UTF8.self))
