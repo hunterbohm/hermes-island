@@ -1,6 +1,6 @@
 # Plan: Hermes Island as a Hermes plugin
 
-Status: the plugin is built in `hermes-plugin/` and passes `hermes plugins validate` and `hermes plugins doctor --ci`. Nothing is submitted. Making the repo public and opening the catalog PR are the owner's to do.
+Status: in the Hermes plugin catalog since 2026-11-22 (NousResearch/hermes-agent PR 158490, pinned to 2433366). The plugin passes `hermes plugins validate` and `hermes plugins doctor --ci`. The sections below are the plan it was built from.
 
 ## What Hermes already gives us
 
