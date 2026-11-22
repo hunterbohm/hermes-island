@@ -133,6 +133,8 @@ enum TalkEnd: Equatable {
     var onOpening: ((Bool) -> Void)?
     /// The session the talk went to, once it is open.
     private(set) var sessionID: String?
+    /// From the key to the talk hearing you, set when the talk starts.
+    private(set) var connectClock = ConnectClock(start: .now)
 
     private(set) var bar: TalkBar {
         didSet {
@@ -147,6 +149,7 @@ enum TalkEnd: Equatable {
     private var pending: [Float] = []
     private var ticker: Task<Void, Never>?
     private var connecting: Task<Void, Never>?
+    private var voicing: Task<Void, Never>?
     private var client: ACPClient?
     private var connected = false
     /// A turn you finished before the agent was ready.
@@ -249,12 +252,14 @@ enum TalkEnd: Equatable {
 
 
     func start() {
+        connectClock = ConnectClock(start: .now)
         do {
             try speaker.start()
             try input.start()
         } catch {
             return end(.failed(error.localizedDescription))
         }
+        connectClock.mark(.audio, at: .now)
         speaker.onStarted = { [weak self] caption in self?.started(caption) }
         speaker.onIdle = { [weak self] in self?.idle() }
         engine.prepare()
@@ -278,16 +283,30 @@ enum TalkEnd: Equatable {
         }
     }
 
+    /// Opens the session and loads the voice side by side. The talk hears you once the session is open: the voice is
+    /// needed only for the reply, and loads while you talk. A voice that doesn't load ends the talk all the same.
     private func connect() async {
         let agent = self.agent, pool = self.pool, voice = self.voice
-        async let session = pool.talkSession(agent)
-        async let ready: Void = voice.prepare()
+        voicing = Task { [weak self] in
+            do {
+                try await voice.prepare()
+                guard let self, !self.ended else { return }
+                self.connectClock.mark(.voice, at: .now)
+                self.logConnected()
+            } catch {
+                guard let self, !self.ended else { return }
+                self.end(.failed(error.localizedDescription))
+            }
+        }
         do {
-            let (client, id, extras, continued) = try await session
-            try await ready
+            let (client, id, extras, continued) = try await pool.talkSession(agent, started: { [weak self] in
+                self?.connectClock.mark(.agent, at: .now)
+            })
             guard !ended else { return }
+            connectClock.mark(.session, at: .now)
             (self.client, sessionID, self.extras, connected) = (client, id, extras, true)
             log.notice("talk with \(agent.name, privacy: .public) in \(continued ? "the earlier" : "a new", privacy: .public) session \(id, privacy: .public)")
+            logConnected()
             if opening != nil {
                 sendOpening()
             } else if let waitingTurn {
@@ -298,10 +317,15 @@ enum TalkEnd: Equatable {
                 onListening?()
             }
         } catch {
-            _ = try? await ready
             guard !ended else { return }
             end(.failed(error.localizedDescription))
         }
+    }
+
+    /// Logs how long the talk took to start, once both the session and the voice are ready.
+    private func logConnected() {
+        guard connectClock.marks[.session] != nil, connectClock.marks[.voice] != nil else { return }
+        log.notice("talk ready: \(self.connectClock.summary, privacy: .public)")
     }
 
     /// Ends the talk, from the key, the close button, a goodbye, the quiet or a failure.
@@ -311,6 +335,7 @@ enum TalkEnd: Equatable {
         log.notice("talk ended: \(String(describing: reason), privacy: .public)")
         ticker?.cancel()
         connecting?.cancel()
+        voicing?.cancel()
         previews?.cancel()
         transcribing?.cancel()
         prompting?.cancel()

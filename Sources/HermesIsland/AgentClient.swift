@@ -37,11 +37,15 @@ actor ACPClient {
     private(set) var exited = false
     /// What the agent said it can do at `initialize`.
     private(set) var abilities = AgentAbilities()
+    /// Told once when the agent stops, whoever stopped it.
+    private let onExit: (@Sendable () -> Void)?
+    private var exitTold = false
     private static let log = Logger(subsystem: "dev.hermes-island.app", category: "agent")
 
     /// Starts the process. Nothing is sent until `initialize`.
-    init(name: String, shellCommand: String, cwd: URL) throws {
+    init(name: String, shellCommand: String, cwd: URL, onExit: (@Sendable () -> Void)? = nil) throws {
         self.name = name
+        self.onExit = onExit
         let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
         process.executableURL = URL(fileURLWithPath: shell)
         process.arguments = ["-lc", shellCommand]
@@ -116,6 +120,13 @@ actor ACPClient {
     }
 
     func notify(_ method: String, _ params: JSONValue) { write(RPCMessage.notification(method: method, params: params)) }
+
+    /// Whether the agent still answers within `seconds`. It is asked for a method no agent offers, which a live one turns
+    /// down at once; a link that died while the Mac slept answers nothing.
+    func answers(within seconds: Double) async -> Bool {
+        do { _ = try await request(Standby.checkMethod, .object([:]), timeout: seconds) } catch is RPCError {} catch { return false }
+        return true
+    }
 
     func initialize() async throws {
         abilities = AgentAbilities.parse(try await request("initialize", ACP.initialize(version: Self.version), timeout: 45))
@@ -226,6 +237,13 @@ actor ACPClient {
 
     /// Called when stdout closes and when the process exits, whichever comes first; the second call finds nothing to do.
     private func closed(stderr: [String]) {
+        // Told after `exited` is set, so whoever hears it finds the agent stopped.
+        defer {
+            if exited, !exitTold {
+                exitTold = true
+                onExit?()
+            }
+        }
         guard !exited || !pending.isEmpty else { return }
         exited = true
         stderrTail = stderr
@@ -240,7 +258,7 @@ actor ACPClient {
 
 /// Keeps each agent the user has talked with running, so the next talk skips its start-up.
 /// An agent with no request for 30 minutes is stopped, never one still answering; a dead one is started again on the
-/// next request.
+/// next request. The talk's own agent is kept ready instead, with its session open: see `keepReady`.
 @MainActor final class AgentPool {
     let idleLimit: Double
 
@@ -295,6 +313,83 @@ actor ACPClient {
         liveTalks[agentID] = nil
     }
 
+    // MARK: Standby
+
+    /// The agent kept ready for the next talk.
+    private var standby: AgentConnection?
+    /// Getting the standby ready: its start and its session's opening. A talk that starts meanwhile waits for it.
+    private var readying: Task<Void, Never>?
+    private var retry: Task<Void, Never>?
+    /// Times in a row the standby stopped or failed to start, for the wait before the next try.
+    private var standbyFailures = 0
+
+    /// Keeps `agent` running with its talk session open, so a double tap doesn't wait for the agent to start and the
+    /// session to open. It is kept past `idleLimit`, and started again when it stops, after a wait that grows while it
+    /// keeps failing, as when the other Mac is asleep. Nil keeps none; the agent then goes after `idleLimit` like any other.
+    func keepReady(_ agent: AgentConnection?) {
+        if agent != standby {
+            standby = agent
+            standbyFailures = 0
+            retry?.cancel()
+            retry = nil
+        }
+        ready()
+    }
+
+    /// Gets the standby ready now, unless it is already being got ready. Cheap when it is ready: a session still open is
+    /// used as it is, after a check that an agent idle for a while still answers, so after the Mac wakes a link that died
+    /// while it slept is replaced now, not when the next talk finds it.
+    func ready() {
+        guard let agent = standby, readying == nil else { return }
+        retry?.cancel()
+        retry = nil
+        readying = Task { [weak self] in
+            guard let self else { return }
+            let started = Instant.now
+            do {
+                let client = try await self.client(for: agent)
+                // An agent that opens each talk in a new session gets only its start done ahead: a session made now
+                // would be one the talk doesn't use.
+                if agent.continuesTalks, await client.abilities.continues {
+                    _ = try await self.openTalkSession(agent, fresh: false, started: nil)
+                }
+                self.standbyFailures = 0
+                self.log.info("\(agent.name, privacy: .public) ready for the next talk in \(Instant.now - started, format: .fixed(precision: 2)) s")
+            } catch {
+                self.standbyFailures += 1
+                self.log.error("\(agent.name, privacy: .public) isn't ready for the next talk: \(error.localizedDescription, privacy: .public)")
+                self.retryStandby()
+            }
+            self.readying = nil
+        }
+    }
+
+    /// Waits for the standby to be ready, or to fail to be.
+    func whenReady() async { await readying?.value }
+
+    private func retryStandby() {
+        guard let agent = standby, retry == nil else { return }
+        let wait = Standby.retryDelay(afterFailures: standbyFailures)
+        retry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            guard !Task.isCancelled, let self, self.standby?.id == agent.id else { return }
+            self.retry = nil
+            self.ready()
+        }
+    }
+
+    /// An agent's process ended. The standby's is started again, unless it was stopped on purpose, which removed it.
+    private func exited(_ agentID: String) async {
+        guard let entry = warm[agentID] else { return }
+        guard !(await entry.client.isAlive), warm[agentID]?.client === entry.client else { return }
+        warm[agentID] = nil
+        liveTalks[agentID] = nil
+        guard standby?.id == agentID, readying == nil else { return }
+        standbyFailures += 1
+        log.info("\(entry.client.name, privacy: .public) stopped; starting it again in \(Standby.retryDelay(afterFailures: self.standbyFailures), format: .fixed(precision: 0)) s")
+        retryStandby()
+    }
+
     /// Whether a talk with this agent would pick up a conversation now.
     func hasConversation(_ agent: AgentConnection) -> Bool { agent.continuesTalks && threads.session(for: agent) != nil }
 
@@ -305,9 +400,19 @@ actor ACPClient {
     /// session starts in the pool's scratch folder, in no project. When the app has extras for the agent, such as T3
     /// Code's tools, they go on the session first; if the agent turns any of them down, the talk starts without them, since
     /// the tools are only safe with the options that come with. `continued` says the session is an earlier one.
-    func talkSession(_ agent: AgentConnection, fresh: Bool = false) async throws -> (client: ACPClient, id: String, extras: TalkExtras?, continued: Bool) {
+    /// `started` is called once the agent is running, for the talk's clock.
+    func talkSession(_ agent: AgentConnection, fresh: Bool = false, started: (@MainActor () -> Void)? = nil)
+        async throws -> (client: ACPClient, id: String, extras: TalkExtras?, continued: Bool) {
+        // The standby is being got ready: the talk takes what that opens, instead of opening a second session beside it.
+        if !fresh, standby?.id == agent.id, let readying { await readying.value }
+        return try await openTalkSession(agent, fresh: fresh, started: started)
+    }
+
+    private func openTalkSession(_ agent: AgentConnection, fresh: Bool, started: (@MainActor () -> Void)?)
+        async throws -> (client: ACPClient, id: String, extras: TalkExtras?, continued: Bool) {
         async let wanted = talkExtras?(agent)
         let client = try await client(for: agent)
+        started?()
         let cwd = agent.sessionDirectory(local: workingDirectory.path)
         let extras = await wanted
         if fresh { startOver(agent.id) }
@@ -396,7 +501,10 @@ actor ACPClient {
         Task { await entry.client.terminate() }
     }
 
-    func stopAll() { for id in Array(warm.keys) { stop(id) } }
+    func stopAll() {
+        keepReady(nil)
+        for id in Array(warm.keys) { stop(id) }
+    }
 
     private func remember(_ info: SessionInfo, for id: String) {
         guard catalogs[id] != info else { return }
@@ -410,11 +518,11 @@ actor ACPClient {
         Task { _ = try? await client(for: agent) }
     }
 
-    /// The running client, or a new one when there is none, it died, or its command changed.
+    /// The running client, or a new one when there is none, it died, it no longer answers, or its command changed.
     private func client(for agent: AgentConnection) async throws -> ACPClient {
         let command = agent.shellCommand
         if let entry = warm[agent.id] {
-            if entry.command == command, await entry.client.isAlive { return entry.client }
+            if entry.command == command, await entry.client.isAlive, await answers(entry.client) { return entry.client }
             stop(agent.id)
         }
         if let task = starting[agent.id] { return try await task.value }
@@ -427,7 +535,10 @@ actor ACPClient {
                     startTokens[agent.id] = nil
                 }
             }
-            let client = try ACPClient(name: agent.name, shellCommand: command, cwd: cwd)
+            let id = agent.id
+            let client = try ACPClient(name: agent.name, shellCommand: command, cwd: cwd, onExit: { [weak self] in
+                Task { @MainActor in await self?.exited(id) }
+            })
             do {
                 try await client.initialize()
             } catch {
@@ -447,6 +558,14 @@ actor ACPClient {
         starting[agent.id] = task
         startTokens[agent.id] = token
         return try await task.value
+    }
+
+    /// Whether a client idle for a while still answers. One in use, or used just now, is taken as it is.
+    private func answers(_ client: ACPClient) async -> Bool {
+        guard let idle = await client.idleSince, Instant.now - idle > Standby.checkAfterIdle else { return true }
+        let alive = await client.answers(within: Standby.checkTimeout)
+        if !alive { log.info("\(client.name, privacy: .public) didn't answer after \(Int(Instant.now - idle)) s idle; starting it again") }
+        return alive
     }
 
     private static func explain(agent: String, error: any Error, stderr: String?) -> String {
@@ -469,9 +588,9 @@ actor ACPClient {
         }
     }
 
-    /// Stops each agent with no request for `idleLimit`. False once none is left running.
+    /// Stops each agent with no request for `idleLimit`, except the one kept ready. False once none is left running.
     private func reap() async -> Bool {
-        for (id, entry) in warm {
+        for (id, entry) in warm where id != standby?.id {
             guard let idle = await entry.client.idleSince, Instant.now - idle > idleLimit, warm[id]?.client === entry.client else { continue }
             log.info("\(entry.client.name, privacy: .public) stopped after \(Int(self.idleLimit)) s with no request")
             stop(id)

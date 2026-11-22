@@ -26,6 +26,7 @@ import os
     private var callInTalk: String?
     private var callObserver: (any NSObjectProtocol)?
     private var settingsObserver: (any NSObjectProtocol)?
+    private var wakeObserver: (any NSObjectProtocol)?
     private(set) var engineStatus = EngineStatus.loading(.compiling)
 
     init() {
@@ -76,11 +77,22 @@ import os
             forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.preferences.reload() }
         }
+        // A link to an agent on another Mac may have died while this one slept.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.agents.ready() }
+        }
         Microphone.requestAccessIfNeeded()
         microphone.prepare(preferences.current.microphone)
         engine.prepare()
+        keepTalkAgentReady(preferences.current)
         keyTap.start(prompting: true)
         menu.refresh()
+    }
+
+    /// The agent a double tap would talk with is kept running with its session open, so the talk starts at once.
+    private func keepTalkAgentReady(_ settings: IslandSettings) {
+        agents.keepReady(settings.liveTalk.enabled ? settings.talkAgent : nil)
     }
 
     private func apply(_ old: IslandSettings, _ new: IslandSettings) {
@@ -90,6 +102,7 @@ import os
         if old.microphone != new.microphone || old.automaticOrder != new.automaticOrder, talk == nil {
             microphone.prepare(new.microphone)
         }
+        keepTalkAgentReady(new)
         menu.refresh()
     }
 
@@ -111,6 +124,10 @@ import os
         guard settings.liveTalk.enabled else { return }
         guard let agent = settings.talkAgent else {
             return toast.show("No agent to talk with", detail: "Add one to the settings file. The menu opens it.")
+        }
+        if lipServiceTalks() {
+            log.notice("Lip Service's live talk took the double tap")
+            return toast.show(TalkRival.title, detail: TalkRival.detail)
         }
         startTalk(with: agent)
     }
@@ -227,6 +244,13 @@ import os
         // The voice loaded while it rang goes after its usual wait, as after a talk.
         Task { await OnMacVoices.shared.idle() }
         render()
+    }
+
+    /// Lip Service is running with its own live talk on, so it starts a talk on this double tap too: a second one here
+    /// would say every reply again.
+    private func lipServiceTalks() -> Bool {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: Migration.lipServiceDomain).isEmpty else { return false }
+        return TalkRival.talks(settings: UserDefaults(suiteName: Migration.lipServiceDomain)?.data(forKey: "settings"))
     }
 
     private func render() {
