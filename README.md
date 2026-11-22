@@ -80,7 +80,7 @@ You need the Command Line Tools with Swift 6.2 or later. Xcode is not needed.
 
 ## Hermes plugin
 
-The plugin is in [hermes-plugin/](hermes-plugin/README.md). What is left before it goes into the Hermes plugin catalog is in [docs/hermes-plugin.md](docs/hermes-plugin.md).
+The plugin is in [hermes-plugin/](hermes-plugin/README.md) and in the [Hermes plugin catalog](https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/hermes-island.yaml). How it is put together is in [docs/hermes-plugin.md](docs/hermes-plugin.md).
 
 ## Credits
 
