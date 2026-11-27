@@ -185,12 +185,46 @@ public enum ReleaseCheck {
     }
     public static func assessArguments(_ app: URL) -> [String] { ["--assess", "--type", "execute", app.path] }
 
+    /// What is wrong with a zip's entries, or nil. `names` is one path per line (`zipinfo -1`); `listing` is the default
+    /// `zipinfo` listing, where a link's line starts with `l`. Every path must sit under the same single `*.app` folder, with
+    /// no absolute path and no `..`, and nothing may be a link: the app has none, and a link could carry a later entry
+    /// out of the folder it is unpacked into.
+    public static func entryProblem(names: String, listing: String) -> String? {
+        let paths = names.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        guard !paths.isEmpty else { return "the archive is empty" }
+        var top: String?
+        for path in paths {
+            if path.hasPrefix("/") || path.contains("\\") { return "\(path) is not a relative path" }
+            let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+            if parts.contains("..") { return "\(path) leaves the folder" }
+            guard let first = parts.first, first.hasSuffix(".app"), !first.hasPrefix(".") else {
+                if path.hasPrefix("__MACOSX/") { continue }
+                return "\(path) is not inside an app"
+            }
+            if let top, top != first { return "more than one app: \(top) and \(first)" }
+            top = first
+        }
+        guard top != nil else { return "no app in the archive" }
+        for line in listing.split(separator: "\n") where line.first == "l" && line.dropFirst().first.map({ "rwx-sStT".contains($0) }) == true {
+            return "the archive holds a link: \(line.suffix(80))"
+        }
+        return nil
+    }
+
     /// Unpacks `archive` into `folder` (which must exist and be empty) and returns the checked app inside it.
     public static func verify(archive: URL, feed: ReleaseFeed, channel: UpdateChannel, folder: URL,
                               run: ReleaseToolRunner) async throws -> URL {
         let size = (try? FileManager.default.attributesOfItem(atPath: archive.path)[.size] as? Int) ?? -1
         guard size == feed.length else { throw ReleaseCheckFailure.length(expected: feed.length, got: size) }
         guard ModelCheck.sha256(of: archive) == feed.sha256 else { throw ReleaseCheckFailure.hash }
+
+        // The signature is checked on the unpacked app, so unpacking comes first. Look at what the archive holds before
+        // anything is written: only paths under one app folder, and no links that a later entry could write through.
+        let names = try await run("/usr/bin/zipinfo", ["-1", archive.path])
+        guard names.status == 0 else { throw ReleaseCheckFailure.archive(names.text) }
+        let details = try await run("/usr/bin/zipinfo", [archive.path])
+        guard details.status == 0 else { throw ReleaseCheckFailure.archive(details.text) }
+        if let problem = entryProblem(names: names.text, listing: details.text) { throw ReleaseCheckFailure.archive(problem) }
 
         let unzip = try await run("/usr/bin/ditto", unzipArguments(archive, into: folder))
         guard unzip.status == 0 else { throw ReleaseCheckFailure.archive(unzip.text) }

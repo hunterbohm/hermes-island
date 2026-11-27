@@ -127,11 +127,14 @@ import Testing
 
         /// A runner whose `ditto` unpacks an app with these Info.plist values; codesign and spctl answer as given.
         func runner(id: String = "dev.example.app", shown: String = "0.2.0", installer: Bool = true, apps: [String] = ["App.app"],
-                    codesign: Int32 = 0, spctl: Int32 = 0, calls: Calls = Calls()) -> ReleaseToolRunner {
+                    codesign: Int32 = 0, spctl: Int32 = 0, names: [String] = ["App.app/", "App.app/Contents/Info.plist"],
+                    listing: String = "-rw-r--r--  3.0 unx  10 bX  10 defN 26-Nov-26 21:00 App.app/Contents/Info.plist", calls: Calls = Calls()) -> ReleaseToolRunner {
             let unpacked = unpacked
             return { executable, arguments in
                 calls.add(executable, arguments)
                 switch executable {
+                case "/usr/bin/zipinfo":
+                    return (0, arguments.first == "-1" ? names.joined(separator: "\n") : listing)
                 case "/usr/bin/ditto":
                     for name in apps {
                         let contents = unpacked.appendingPathComponent(name).appendingPathComponent("Contents")
@@ -175,7 +178,7 @@ import Testing
         let app = try await ReleaseCheck.verify(archive: fixture.archive, feed: fixture.feed(), channel: fixture.channel,
                                                 folder: fixture.unpacked, run: fixture.runner(calls: calls))
         #expect(app.lastPathComponent == "App.app")
-        #expect(calls.names == ["ditto", "codesign", "spctl"])
+        #expect(calls.names == ["zipinfo", "zipinfo", "ditto", "codesign", "spctl"])
         #expect(calls.arguments["codesign"]?.contains("=" + fixture.channel.requirement) == true)
     }
 
@@ -191,6 +194,26 @@ import Testing
         let calls = Calls()
         #expect(await fail(fixture, feed: fixture.feed(sha256: String(repeating: "0", count: 64)), fixture.runner(calls: calls)) == .hash)
         #expect(calls.names.isEmpty)
+    }
+
+    @Test func anArchiveThatReachesOutsideItsFolderOrHoldsALinkIsRefusedBeforeUnpacking() async throws {
+        let link = "lrwxr-xr-x  3.0 unx  10 bx  10 stor 26-Nov-26 21:00 App.app/Contents/escape"
+        let cases: [(names: [String], listing: String?)] = [
+            (["../outside"], nil), (["App.app/../../outside"], nil), (["/etc/passwd"], nil), (["other.txt"], nil),
+            (["A.app/x", "B.app/x"], nil), ([], nil), (["App.app/x", "App.app/escape"], link),
+        ]
+        for entry in cases {
+            let fixture = try Fixture()
+            let calls = Calls()
+            let runner = entry.listing.map { fixture.runner(names: entry.names, listing: $0, calls: calls) }
+                ?? fixture.runner(names: entry.names, calls: calls)
+            guard case .archive = await fail(fixture, runner) else { Issue.record("\(entry.names) was accepted"); continue }
+            #expect(!calls.names.contains("ditto"), "\(entry.names)")
+        }
+    }
+
+    @Test func aMacArchiveWithItsResourceForkFolderStillPasses() {
+        #expect(ReleaseCheck.entryProblem(names: "App.app/\nApp.app/Contents/Info.plist\n__MACOSX/App.app/._x", listing: "-rw-r--r-- 3.0 unx 1 b- 1 stor d App.app/Contents/Info.plist") == nil)
     }
 
     @Test func anotherAppIsRefused() async throws {
