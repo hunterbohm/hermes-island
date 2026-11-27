@@ -98,9 +98,9 @@ import os
         return feed != nil
     }
 
-    /// Downloads the offered release, checks it, and hands the install to a launchd job. The caller quits the app when
-    /// this returns, so the job can replace it.
-    func install(_ feed: ReleaseFeed, canQuit: () -> Bool) async throws {
+    /// Downloads the offered release, checks it, and hands the install to a launchd job, then quits the app so the job can
+    /// replace it. The last check for a talk and the quit happen in one step, so no call starts between them.
+    func install(_ feed: ReleaseFeed, canQuit: () -> Bool, thenQuit quit: () -> Void) async throws {
         guard !busy else { throw Refusal(message: "An update is already being prepared.") }
         let waitForCall = Refusal(message: "Finish your talk first. The update restarts Hermes Island.")
         guard canQuit() else { throw waitForCall }
@@ -137,6 +137,12 @@ import os
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: installer.path)
             let plist = Self.job(installer: installer, app: app, destination: channel.app, pid: getpid(), work: work, status: statusURL, log: logURL)
             try await launch(PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0))
+            guard canQuit() else {
+                // The job gives up on its own after 30 seconds if this app has not quit; end it now.
+                _ = try? await Self.run("/bin/launchctl", ["bootout", "gui/\(getuid())/\(Self.jobLabel)"])
+                throw waitForCall
+            }
+            quit()
         } catch {
             note("Couldn't update to \(feed.version.tag): \(error)")
             throw error
@@ -176,7 +182,10 @@ import os
     static let run: ReleaseToolRunner = { executable, arguments in
         let done = try await Process.runToEnd(executable, arguments, environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
                                               input: Data(), timeout: 300)
-        let text = String(decoding: (done.output + done.errors).prefix(2000), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        // Whole, never cut short: the archive listing is checked line by line before anything is unpacked.
+        let all = done.output + done.errors
+        guard all.count <= 8 << 20 else { return (1, "the output was too long to check") }
+        let text = String(decoding: all, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         return (done.timedOut ? 124 : done.status, text.isEmpty ? "exit \(done.status)" : text)
     }
 

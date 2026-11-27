@@ -163,8 +163,7 @@ import IslandCore
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task {
             do {
-                try await updater.install(offer, canQuit: { !coordinator.inCall })
-                NSApp.terminate(nil)
+                try await updater.install(offer, canQuit: { !coordinator.inCall }, thenQuit: { NSApp.terminate(nil) })
             } catch {
                 let failed = NSAlert()
                 failed.messageText = "Couldn't update to \(offer.version.tag)"

@@ -160,11 +160,11 @@ public enum ReleaseCheckFailure: Error, Equatable, CustomStringConvertible {
         case .changed(let version): "the update feed now offers \(version?.tag ?? "nothing"); check again"
         case .length(let expected, let got): "the download is \(got) bytes, the feed says \(expected)"
         case .hash: "the download does not match the feed's SHA-256"
-        case .archive(let why): "the download is not a usable app: \(why)"
+        case .archive(let why): "the download is not a usable app: \(why.prefix(300))"
         case .identity(let id): "the downloaded app is \(id), not this app"
         case .version(let version): "the downloaded app says it is \(version), not the version the feed offers"
-        case .codeSignature(let output): "the downloaded app is not signed by this app's developer: \(output)"
-        case .gatekeeper(let output): "macOS would not open the downloaded app (not notarized?): \(output)"
+        case .codeSignature(let output): "the downloaded app is not signed by this app's developer: \(output.prefix(300))"
+        case .gatekeeper(let output): "macOS would not open the downloaded app (not notarized?): \(output.prefix(300))"
         }
     }
 }
