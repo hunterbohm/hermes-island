@@ -75,4 +75,7 @@ check "with Open at Login on the old app turns it off and the new one turns it b
 check "the login steps run in the order macOS 26 needs" $([[ "$steps" == "--login-status,--open-at-login off,lsregister -f -R,--open-at-login on,open,--open-at-login off,lsregister -u,lsregister -f -R,--open-at-login on," ]]; echo $?)
 check "the first login steps run on the old app and the rest on the new" $(sed -n '1,2p' "$case/calls" | grep -qv '^NEW' && grep -q '^NEW --open-at-login on' "$case/calls"; echo $?)
 
+run loginfail 1 "$tmp/nowhere.app"
+check "a failed install with Open at Login on turns it back on and keeps the old app" $([[ "$code" != 0 && "$(marker)" == OLD && -f "$STATE/login" ]] && grep -q '^OLD --open-at-login on' "$case/calls"; echo $?)
+
 [[ "$failures" == 0 ]] && echo "all checks passed" || { echo "$failures failed" >&2; exit 1; }

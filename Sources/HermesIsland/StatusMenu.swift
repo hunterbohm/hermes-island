@@ -163,7 +163,7 @@ import IslandCore
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task {
             do {
-                try await updater.install(offer, canQuit: !coordinator.inCall)
+                try await updater.install(offer, canQuit: { !coordinator.inCall })
                 NSApp.terminate(nil)
             } catch {
                 let failed = NSAlert()

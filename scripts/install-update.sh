@@ -21,9 +21,14 @@ binary="$dest/Contents/MacOS/HermesIsland"
 fresh="$(dirname "$dest")/.Hermes Island.new.app"
 aside="$(dirname "$dest")/.Hermes Island.old.app"
 
+login_off=0  # 1 while this script has turned Open at Login off and not yet back on
 finish() {
     code=$?
-    if [[ $code != 0 ]]; then "$open_bin" "$dest" >/dev/null 2>&1 || true; fi
+    if [[ $code != 0 ]]; then
+        # A failed install must leave the app and its login setting as they were.
+        [[ $login_off == 1 && -x "$binary" ]] && "$binary" --open-at-login on >/dev/null 2>&1
+        "$open_bin" "$dest" >/dev/null 2>&1 || true
+    fi
     printf '%s\n' "$code" > "$status_file"
     rm -rf "$work" "$fresh" "$aside"
     printf 'Finished %s with exit %s\n' "$(date)" "$code"
@@ -47,7 +52,7 @@ wait_until 30 gone || { printf 'Hermes Island (pid %s) did not quit; nothing was
 
 login=0
 if [[ -x "$binary" ]] && app --login-status | grep -qF 'launch agent: enabled'; then login=1; fi
-[[ $login == 1 ]] && app --open-at-login off >/dev/null
+if [[ $login == 1 ]]; then login_off=1; app --open-at-login off >/dev/null; fi
 
 # The new bundle is assembled beside the old one and renamed into place: writing over a running app's binary kills it.
 rm -rf "$fresh" "$aside"
@@ -82,6 +87,7 @@ sleep "$((settle / 2 + 1))"
 "$lsregister" -f -R "$dest" >/dev/null 2>&1 || true
 sleep "$((settle / 2 + 1))"
 app --open-at-login on >/dev/null
+login_off=0
 if ! wait_until 10 launchd_runs_it; then
     printf 'The login item would not start the new copy; it was opened by hand. Turn Open at Login off and on in its menu.\n' >&2
     exit 1

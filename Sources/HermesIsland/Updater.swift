@@ -100,9 +100,10 @@ import os
 
     /// Downloads the offered release, checks it, and hands the install to a launchd job. The caller quits the app when
     /// this returns, so the job can replace it.
-    func install(_ feed: ReleaseFeed, canQuit: Bool) async throws {
+    func install(_ feed: ReleaseFeed, canQuit: () -> Bool) async throws {
         guard !busy else { throw Refusal(message: "An update is already being prepared.") }
-        guard canQuit else { throw Refusal(message: "Finish your talk first. The update restarts Hermes Island.") }
+        let waitForCall = Refusal(message: "Finish your talk first. The update restarts Hermes Island.")
+        guard canQuit() else { throw waitForCall }
         let parent = channel.app.deletingLastPathComponent().path
         guard FileManager.default.isWritableFile(atPath: parent) else {
             throw Refusal(message: "Hermes Island can't replace itself in \(parent). Download the new version from its releases page and move it there by hand.")
@@ -127,6 +128,8 @@ import os
             let app = try await ReleaseCheck.verify(archive: archive, feed: current, channel: channel, folder: unpacked, run: Self.run)
             try? FileManager.default.removeItem(at: archive)
 
+            // The download took a while; a talk or call back may have started since.
+            guard canQuit() else { throw waitForCall }
             // The installer runs from outside the bundle it replaces.
             let installer = folder.appending(path: "install-update.sh")
             try? FileManager.default.removeItem(at: installer)
