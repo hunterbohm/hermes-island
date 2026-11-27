@@ -205,8 +205,17 @@ public enum ReleaseCheck {
             top = first
         }
         guard top != nil else { return "no app in the archive" }
-        for line in listing.split(separator: "\n") where line.first == "l" && line.dropFirst().first.map({ "rwx-sStT".contains($0) }) == true {
+        for line in listing.split(separator: "\n") where line.first == "l" {
             return "the archive holds a link: \(line.suffix(80))"
+        }
+        return nil
+    }
+
+    /// The first symbolic link under `folder`, as a path relative to it, or nil.
+    static func firstLink(under folder: URL) -> String? {
+        guard let walk = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isSymbolicLinkKey], options: [], errorHandler: { _, _ in true }) else { return nil }
+        for case let item as URL in walk where (try? item.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true {
+            return String(item.path.dropFirst(folder.path.count))
         }
         return nil
     }
@@ -228,6 +237,8 @@ public enum ReleaseCheck {
 
         let unzip = try await run("/usr/bin/ditto", unzipArguments(archive, into: folder))
         guard unzip.status == 0 else { throw ReleaseCheckFailure.archive(unzip.text) }
+        // The listing above is zipinfo's reading of the archive; this is what unpacking actually made.
+        if let link = firstLink(under: folder) { throw ReleaseCheckFailure.archive("the unpacked app holds a link: \(link)") }
         let items = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { !$0.hasPrefix(".") }
         guard items.count == 1, let name = items.first, name.hasSuffix(".app") else {
             throw ReleaseCheckFailure.archive("expected one app, found \(items.sorted())")

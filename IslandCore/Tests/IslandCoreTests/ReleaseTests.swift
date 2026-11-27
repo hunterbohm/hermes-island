@@ -127,7 +127,7 @@ import Testing
 
         /// A runner whose `ditto` unpacks an app with these Info.plist values; codesign and spctl answer as given.
         func runner(id: String = "dev.example.app", shown: String = "0.2.0", installer: Bool = true, apps: [String] = ["App.app"],
-                    codesign: Int32 = 0, spctl: Int32 = 0, names: [String] = ["App.app/", "App.app/Contents/Info.plist"],
+                    codesign: Int32 = 0, spctl: Int32 = 0, link: Bool = false, names: [String] = ["App.app/", "App.app/Contents/Info.plist"],
                     listing: String = "-rw-r--r--  3.0 unx  10 bX  10 defN 26-Nov-26 21:00 App.app/Contents/Info.plist", calls: Calls = Calls()) -> ReleaseToolRunner {
             let unpacked = unpacked
             return { executable, arguments in
@@ -142,6 +142,7 @@ import Testing
                         let info: [String: Any] = ["CFBundleIdentifier": id, "CFBundleShortVersionString": shown]
                         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
                             .write(to: contents.appendingPathComponent("Info.plist"))
+                        if link { try FileManager.default.createSymbolicLink(atPath: contents.appendingPathComponent("escape").path, withDestinationPath: "/tmp") }
                         if installer {
                             let script = contents.appendingPathComponent("Resources/scripts/install-update.sh")
                             try Data("#!/bin/bash\n".utf8).write(to: script)
@@ -210,6 +211,11 @@ import Testing
             guard case .archive = await fail(fixture, runner) else { Issue.record("\(entry.names) was accepted"); continue }
             #expect(!calls.names.contains("ditto"), "\(entry.names)")
         }
+    }
+
+    @Test func aLinkThatUnpackingMadeIsRefusedWhateverTheListingSaid() async throws {
+        let fixture = try Fixture()
+        guard case .archive = await fail(fixture, fixture.runner(link: true)) else { Issue.record("accepted"); return }
     }
 
     @Test func aMacArchiveWithItsResourceForkFolderStillPasses() {
