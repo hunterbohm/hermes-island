@@ -27,6 +27,9 @@ case .openAtLogin(let on):
         FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
         exit(1)
     }
+case .verifyUpdate(let feed, let archive):
+    Task { exit(await Updater.verifyFiles(feed: feed, archive: archive)) }
+    dispatchMain()
 case .ttsCheck(let options):
     Task { exit(await Headless.ttsCheck(options)) }
     dispatchMain()

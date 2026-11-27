@@ -1,7 +1,7 @@
 #!/bin/bash
 # Runs the IslandCore tests with swift-testing from the Command Line Tools, so no Xcode and no FluidAudio
 # build is needed. Fails first if the pure package imports a framework that would tie it to hardware or models.
-# Then runs the model download guard check.
+# Then runs the model download guard check and the update installer check.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 package_dir="$root/IslandCore"
@@ -23,3 +23,4 @@ if [[ "${DEVELOPER_DIR:-$(xcode-select -p)}" == /Library/Developer/CommandLineTo
 fi
 swift test "${arguments[@]}" "$@"
 "$root/scripts/test-download-guard.sh"
+"$root/scripts/test-install-update.sh"

@@ -29,6 +29,9 @@ import IslandCore
         let agent = settings.talkAgent
         let where_ = agent.map { $0.hostName.map { " on \($0)" } ?? " on this Mac" } ?? ""
         menu.addItem(disabled(agent.map { "Talking with \($0.name)\(where_)" } ?? "No agent set up"))
+        if let updater = coordinator.updater, let offer = updater.offered {
+            menu.addItem(action("Update to \(offer.version.tag)…", #selector(installUpdate)))
+        }
         if !coordinator.accessibilityGranted {
             menu.addItem(action("Allow Accessibility to use Left Control…", #selector(openAccessibility)))
         }
@@ -64,6 +67,16 @@ import IslandCore
         startOver.isEnabled = agent.map(coordinator.agents.hasConversation) ?? false
         menu.addItem(startOver)
         menu.addItem(action("Edit Settings…", #selector(openSettings)))
+        if let updater = coordinator.updater {
+            menu.addItem(.separator())
+            if updater.lastInstallFailed { menu.addItem(action("The last update didn't install. Show Log", #selector(showUpdateLog))) }
+            let check = action("Check for Updates…", #selector(checkForUpdates))
+            check.isEnabled = !updater.busy
+            menu.addItem(check)
+            let automatic = action("Check for Updates Automatically", #selector(toggleAutomaticUpdates))
+            automatic.state = updater.automatic ? .on : .off
+            menu.addItem(automatic)
+        }
         menu.addItem(.separator())
         menu.addItem(action("Quit Hermes Island", #selector(quit), key: "q"))
     }
@@ -111,6 +124,54 @@ import IslandCore
     @objc private func openAccessibility() {
         _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+    }
+
+    @objc private func checkForUpdates() {
+        guard let updater = coordinator.updater else { return }
+        Task {
+            let readable = await updater.fetch()
+            if let offer = updater.offered { return confirmAndInstall(offer) }
+            let alert = NSAlert()
+            alert.messageText = readable ? "Hermes Island is up to date" : "Couldn't check for updates"
+            alert.informativeText = readable ? "You have \(updater.channel.current.tag), the newest release."
+                : "The update server did not answer. Try again later."
+            alert.runModal()
+        }
+    }
+
+    @objc private func installUpdate() {
+        guard let offer = coordinator.updater?.offered else { return }
+        confirmAndInstall(offer)
+    }
+
+    @objc private func toggleAutomaticUpdates() { coordinator.updater?.automatic.toggle() }
+
+    @objc private func showUpdateLog() {
+        guard let updater = coordinator.updater else { return }
+        NSWorkspace.shared.open(updater.logURL)
+    }
+
+    /// Asks once, then downloads and checks the release and quits so it can be installed. Hermes Island starts again by
+    /// itself when the install is done.
+    private func confirmAndInstall(_ offer: ReleaseFeed) {
+        guard let updater = coordinator.updater else { return }
+        let alert = NSAlert()
+        alert.messageText = "Update Hermes Island to \(offer.version.tag)?"
+        alert.informativeText = "You have \(updater.channel.current.tag). It downloads the new version, checks that it is signed by the same developer, then quits and starts again."
+        alert.addButton(withTitle: "Update")
+        alert.addButton(withTitle: "Not Now")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task {
+            do {
+                try await updater.install(offer, canQuit: !coordinator.inCall)
+                NSApp.terminate(nil)
+            } catch {
+                let failed = NSAlert()
+                failed.messageText = "Couldn't update to \(offer.version.tag)"
+                failed.informativeText = "\((error as? LocalizedError)?.errorDescription ?? "\(error)") You still have \(updater.channel.current.tag)."
+                failed.runModal()
+            }
+        }
     }
 
     @objc private func quit() { NSApp.terminate(nil) }

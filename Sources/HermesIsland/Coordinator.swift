@@ -15,6 +15,8 @@ import os
     private let engine = SpeechEngine(vocabulary: nil)
     private let toast = Toast()
     private(set) var menu: StatusMenu!
+    /// Nil in a source build, which never looks for updates.
+    let updater = Updater()
     /// The voice the island's waves follow: the agent's while it talks, yours otherwise.
     private var meter: VoiceMeter!
     private var talk: Talk?
@@ -36,6 +38,8 @@ import os
 
     var accessibilityGranted: Bool { keyTap.isRunning }
     var talkRunning: Bool { talk != nil }
+    /// A talk is under way or a call back is ringing, so an update that quits the app must wait.
+    var inCall: Bool { talk != nil || ringing != nil }
 
     func start() {
         keyTap.onDoubleTap = { [unowned self] in toggleTalk() }
@@ -88,6 +92,8 @@ import os
         keepTalkAgentReady(preferences.current)
         keyTap.start(prompting: true)
         menu.refresh()
+        updater?.onChange = { [unowned self] in menu.refresh() }
+        updater?.start()
     }
 
     /// The agent a double tap would talk with is kept running with its session open, so the talk starts at once.

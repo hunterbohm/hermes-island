@@ -3,6 +3,10 @@
 # Microphone and Accessibility grants across rebuilds. The new bundle is assembled beside the old one and
 # renamed into place, because copying over the binary of a running app makes the kernel kill it for an
 # invalid signature.
+#
+# scripts/release.sh builds a release through the same script by setting HERMES_ISLAND_SIGN_IDENTITY (the Developer ID
+# certificate to sign with), HERMES_ISLAND_VERSION (the tag), HERMES_ISLAND_TEAM_ID and HERMES_ISLAND_UPDATE_REPO (owner/name
+# whose latest release the app asks for updates). A build without them is the source build: signed locally, no update check.
 set -euo pipefail
 umask 077
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -45,6 +49,18 @@ grep -qF "static let label = \"$agent\"" "$root/Sources/HermesIsland/LaunchAgent
     exit 1
 }
 plutil -replace CFBundleVersion -string "$build_number" "$contents/Info.plist"
+mkdir -p "$contents/Resources/scripts"
+cp "$root/scripts/install-update.sh" "$contents/Resources/scripts/install-update.sh"
+if [[ -n "${HERMES_ISLAND_SIGN_IDENTITY:-}" ]]; then
+    version="${HERMES_ISLAND_VERSION:-}" team="${HERMES_ISLAND_TEAM_ID:-}" repo="${HERMES_ISLAND_UPDATE_REPO:-}"
+    if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || ! "$team" =~ ^[A-Z0-9]{10}$ || ! "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+        printf 'A release build needs HERMES_ISLAND_VERSION (vX.Y.Z), HERMES_ISLAND_TEAM_ID and HERMES_ISLAND_UPDATE_REPO (owner/name).\n' >&2
+        exit 1
+    fi
+    plutil -replace CFBundleShortVersionString -string "${version#v}" "$contents/Info.plist"
+    plutil -insert HermesIslandUpdateFeed -string "https://github.com/$repo/releases/latest/download/appcast.json" "$contents/Info.plist"
+    plutil -insert HermesIslandTeamID -string "$team" "$contents/Info.plist"
+fi
 for resource in talk-start.wav talk-end.wav AppIcon.icns Assets.car; do
     cp "$root/Resources/$resource" "$contents/Resources/$resource"
 done

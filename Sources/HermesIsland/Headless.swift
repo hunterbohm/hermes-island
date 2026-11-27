@@ -7,6 +7,7 @@ enum Mode {
     case listInputs
     case loginStatus
     case openAtLogin(Bool)
+    case verifyUpdate(feed: URL, archive: URL)
     case ttsCheck(Headless.TtsCheckOptions)
     case talkTest(TalkTest.Options)
     case call(CallCommand.Options)
@@ -22,6 +23,9 @@ enum Mode {
                    Prints whether macOS holds the launch agent that starts the app at login.
                HermesIsland --open-at-login on|off
                    Turns the launch agent on or off, as Open at Login in the menu does.
+               HermesIsland --verify-update FEED.json RELEASE.zip
+                   Runs the checks an update goes through on a downloaded release, and prints ok and its version. Release
+                   builds only: the team and bundle id come from this app's Info.plist. release.sh runs it before uploading.
                HermesIsland --tts-check [--voice NAME] [--text TEXT] [--pack DIR | --directory DIR] [--out FILE.wav]
                    Says one sentence with the on-Mac Phonon voice and prints one JSON line of timings. Exits 1 if no
                    sound came out. The voice is en_us_Preston unless given.
@@ -58,6 +62,10 @@ enum Mode {
                 self = .loginStatus
             case "--open-at-login":
                 self = .openAtLogin(try Self.switchValue(of: "--open-at-login", from: &rest))
+            case "--verify-update":
+                let feed = try Self.value(of: "--verify-update", from: &rest)
+                let archive = try Self.value(of: "--verify-update", from: &rest)
+                self = .verifyUpdate(feed: URL(fileURLWithPath: feed), archive: URL(fileURLWithPath: archive))
             case "--tts-check":
                 var options = Headless.TtsCheckOptions()
                 while let flag = rest.popFirst() {
