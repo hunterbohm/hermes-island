@@ -28,7 +28,7 @@ The menu bar item shows who you talk with, the voice, sounds, Open at Login, and
 
 ## Install
 
-There is no signed release yet, so build it (below), then:
+Download `HermesIsland-vX.Y.Z.zip` from the [latest release](https://github.com/hunterbohm/hermes-island/releases/latest), unzip it, and move **Hermes Island** to `/Applications`. Releases are signed with a Developer ID certificate and notarized by Apple, so macOS opens them without a warning. To build it yourself instead, see Build from source below, then:
 
 	ditto "dist/Hermes Island.app" "/Applications/Hermes Island.app"
 	open "/Applications/Hermes Island.app"
@@ -39,6 +39,8 @@ On first launch macOS asks for two permissions:
 - **Microphone**, asked at the same time. Talks need it; the island hears nothing until you start one.
 
 Open at Login starts off; turn it on in the menu bar item.
+
+**Updates.** A downloaded release looks for a newer one once a day and, when there is one, adds **Update to vX.Y.Z…** to the menu. **Check for Updates…** asks at once; **Check for Updates Automatically** turns the daily check off. An update installs only if it is signed by the same Apple developer team as the app you have and notarized; otherwise nothing changes. An app you built yourself never checks.
 
 ## Set up Hermes
 
@@ -63,7 +65,7 @@ An agent entry looks like this. `remoteHost` runs the command over SSH on that h
 
 - Your speech becomes text on your Mac. Audio stays in memory and is never written to disk or sent anywhere. The agent gets your words as text.
 - The agent's replies are spoken by a voice made on your Mac (Phonon), unless you set a voice server, which then gets the replies as text.
-- The app goes online by itself only to download the speech model and the voice from huggingface.co on first use, pinned to commits and checked against SHA-256 hashes built into the app. It has no account, no usage count and no update check.
+- The app goes online by itself only to download the speech model and the voice from huggingface.co on first use, pinned to commits and checked against SHA-256 hashes built into the app. It has no account and no usage count. A downloaded release (not a source build) also asks GitHub once a day for the newest release's small feed file, which sends nothing about you or your Mac beyond what any web request carries; turn that off with **Check for Updates Automatically** in the menu.
 - To see Left Control and ⌃⌥M, the app watches the keyboard through Accessibility. It reacts to those two keys only and does not record, store or send any key.
 
 ## Build from source
@@ -77,6 +79,10 @@ You need the Command Line Tools with Swift 6.2 or later. Xcode is not needed.
 `build-app.sh` signs with a self-signed certificate it makes on the first run and keeps in `~/.config/hermes-island/signing`, so macOS keeps the Microphone and Accessibility grants across rebuilds. `scripts/make-icon.sh` renders the icon from `Resources/Icon/` (needs `brew install librsvg`).
 
 `HermesIsland --test-talk --preset hermes --host HOST clip.wav` holds a whole talk with no microphone or speakers: each WAV clip is your next turn, and it prints the agent's reply and timings as JSON.
+
+## Releasing
+
+Maintainers: [RELEASING.md](RELEASING.md) covers signing, notarizing and publishing a release.
 
 ## Hermes plugin
 
